@@ -7,6 +7,7 @@ PROCEDURE analyze_report (report_name IN VARCHAR2, param_array IN OUT param_arra
 PROCEDURE set_param_with_val (report_line IN VARCHAR2, param_array IN OUT param_array_type);
 FUNCTION split_varchar_by_space(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER) RETURN NUMBER;
 PROCEDURE compare_and_display_params(param_array_old IN param_array_type, param_array_new IN param_array_type);
+PROCEDURE compare_values(old_value IN NUMBER, new_value IN NUMBER, comparison_type IN BOOLEAN);
 END;
 /
 CREATE OR REPLACE PACKAGE BODY report_diff_analyzer AS 
@@ -128,10 +129,8 @@ BEGIN
 		ELSE
 			IF old_value IS NULL THEN
 				dbms_output.put_line(chr(9) || 'Old value not found');
-				DBMS_OUTPUT.NEW_LINE;
 				IF new_value IS NULL THEN
 					dbms_output.put_line(chr(9) || 'New value not found');
-					DBMS_OUTPUT.NEW_LINE;
 				ELSE
 					dbms_output.put_line(chr(9) || 'New value: ' || new_value);
 				END IF;
@@ -139,14 +138,37 @@ BEGIN
 				dbms_output.put_line(chr(9) || 'Old value: ' || old_value);
 				IF new_value IS NULL THEN
 					dbms_output.put_line(chr(9) || 'New value not found');
-					DBMS_OUTPUT.NEW_LINE;
 				ELSE
 					dbms_output.put_line(chr(9) || 'New value: ' || new_value);
+					IF instr(param,'target',1) = 0 THEN
+						compare_values(old_value, new_value, TRUE);	
+					END IF;
 				END IF;
 			END IF;
 		END IF;
 		param := param_array_old.next(param);
 	end loop;
+END;
+PROCEDURE compare_values(old_value IN NUMBER, new_value IN NUMBER, comparison_type IN BOOLEAN)
+IS
+BEGIN
+	IF new_value = old_value THEN 
+		dbms_output.put_line(chr(9) || '--> Parameter value did''t change');
+	ELSE
+		IF comparison_type THEN
+			IF new_value > old_value THEN 
+				dbms_output.put_line(chr(9) || '--> Parameter value got better!');
+			ELSE
+				dbms_output.put_line(chr(9) || '--> Parameter value got worse');
+			END IF;
+		ELSE
+			IF new_value < old_value THEN 
+				dbms_output.put_line(chr(9) || '--> Parameter value got better!');
+			ELSE
+				dbms_output.put_line(chr(9) || '--> Parameter value got worse');
+			END IF;
+		END IF;	
+	END IF;
 END;
 END;
 /
