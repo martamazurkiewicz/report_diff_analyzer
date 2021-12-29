@@ -6,6 +6,7 @@ FUNCTION create_param_array RETURN param_array_type;
 PROCEDURE analyze_report (report_name IN VARCHAR2, param_array IN OUT param_array_type);
 PROCEDURE set_param_with_val (report_line IN VARCHAR2, param_array IN OUT param_array_type);
 FUNCTION split_varchar_by_space(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER) RETURN NUMBER;
+PROCEDURE compare_and_display_params(param_array_old IN param_array_type, param_array_new IN param_array_type);
 END;
 /
 CREATE OR REPLACE PACKAGE BODY report_diff_analyzer AS 
@@ -24,6 +25,8 @@ UTL_FILE.FCLOSE(new_report);
 param_array_old := create_param_array();
 param_array_new := create_param_array();
 analyze_report(old_report_name, param_array_old);
+analyze_report(new_report_name, param_array_new);
+compare_and_display_params(param_array_old, param_array_new);
 EXCEPTION
 WHEN OTHERS THEN
 UTL_FILE.FCLOSE(old_report);
@@ -72,17 +75,16 @@ BEGIN
     IF param_array('pga use') IS NULL AND LOWER(report_line) LIKE '%pga use (%' THEN 
         param_array('pga use') := split_varchar_by_space(report_line, 'B)', 2);
     END IF;
-    IF param_array('sga target') IS NULL AND LOWER(report_line) LIKE 'sga target(%' THEN 
+    IF param_array('sga target') IS NULL AND LOWER(report_line) LIKE 'sga target%' THEN 
         param_array('sga target') := split_varchar_by_space(report_line, 'target', 1);
     END IF;
-    IF param_array('pga target') IS NULL AND LOWER(report_line) LIKE 'pga target(%' THEN 
+    IF param_array('pga target') IS NULL AND LOWER(report_line) LIKE 'pga target%' THEN 
         param_array('pga target') := split_varchar_by_space(report_line, 'target', 1);
     END IF;
     IF param_array('host mem') IS NULL AND LOWER(report_line) LIKE '%host mem (%' THEN 
         param_array('host mem') := split_varchar_by_space(report_line, 'B)', 2);
     END IF;
 END;
-
 FUNCTION split_varchar_by_space(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER) 
 RETURN NUMBER
 IS
@@ -105,6 +107,46 @@ FOR CURRENT_ROW IN (
   END LOOP;
 	RETURN NULL;
 END;
-
+PROCEDURE compare_and_display_params (param_array_old IN param_array_type, param_array_new IN param_array_type)
+IS
+param varchar2(45);
+old_value NUMBER;
+new_value NUMBER;
+loop_counter INTEGER;
+BEGIN
+	param := param_array_old.first;
+	while (param is not null) loop
+		dbms_output.put_line(chr(10) || UPPER(param));
+		FOR loop_counter IN 0..15 LOOP
+			dbms_output.put('~');
+		END LOOP;
+		DBMS_OUTPUT.put_line(' ');
+		old_value := param_array_old(param);
+		new_value := param_array_new(param);
+		IF old_value IS NULL AND new_value IS NULL THEN
+			dbms_output.put_line(chr(9) || 'Parameter values not found');
+		ELSE
+			IF old_value IS NULL THEN
+				dbms_output.put_line(chr(9) || 'Old value not found');
+				DBMS_OUTPUT.NEW_LINE;
+				IF new_value IS NULL THEN
+					dbms_output.put_line(chr(9) || 'New value not found');
+					DBMS_OUTPUT.NEW_LINE;
+				ELSE
+					dbms_output.put_line(chr(9) || 'New value: ' || new_value);
+				END IF;
+			ELSE
+				dbms_output.put_line(chr(9) || 'Old value: ' || old_value);
+				IF new_value IS NULL THEN
+					dbms_output.put_line(chr(9) || 'New value not found');
+					DBMS_OUTPUT.NEW_LINE;
+				ELSE
+					dbms_output.put_line(chr(9) || 'New value: ' || new_value);
+				END IF;
+			END IF;
+		END IF;
+		param := param_array_old.next(param);
+	end loop;
+END;
 END;
 /
