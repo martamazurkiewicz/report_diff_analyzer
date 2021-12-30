@@ -36,16 +36,19 @@ PROCEDURE find_sum_value(
 	key_word VARCHAR2, 
 	value_position_st IN NUMBER,
 	value_position_nd IN NUMBER);
+PROCEDURE show_suggested_values(
+	param_array IN OUT param_array_type, 
+	param_name IN VARCHAR2);
 END;
 /
 
 
 CREATE OR REPLACE PACKAGE BODY report_diff_analyzer AS 
 	report_dir VARCHAR2(20) := 'REPORT_DIR';
-	param_array_old param_array_type;
-	param_array_new param_array_type;
-	meta_info_array_old meta_info_array_type;
-	meta_info_array_new meta_info_array_type;
+	--param_array_old param_array_type;
+	--param_array_new param_array_type;
+	--meta_info_array_old meta_info_array_type;
+	--meta_info_array_new meta_info_array_type;
 
 
 PROCEDURE compare_reports (old_report_name IN VARCHAR2, new_report_name IN VARCHAR2) 
@@ -80,26 +83,26 @@ FUNCTION create_param_array RETURN param_array_type
 IS
 	param_array param_array_type;
 BEGIN
-	param_array('DCsga use') := null;
-	param_array('DCpga use') := null;
-	param_array('UChost mem') := null;
-	param_array('DChost mem used for sga+pga %') := null;
-	param_array('DCbuffer cache') := null;
-	param_array('DCshared pool') := null;
-	param_array('DClarge pool') := null;
-	param_array('DCjava pool') := null;
-	param_array('DClog buffer') := null;
-	param_array('UCoptimal w/a exec %') := null;
-	param_array('UCsoft parse %') := null;
-	param_array('UCbuffer hit %') := null;
-	param_array('UClibrary hit %') := null;
-	param_array('UCbuffer nowait %') := null;
+	param_array('DSsga use (MB)') := null;
+	param_array('DSpga use (MB)') := null;
+	param_array('UShost mem (MB)') := null;
+	param_array('DShost mem used for sga+pga %') := null;
+	param_array('DCbuffer cache (MB)') := null;
+	param_array('DCshared pool (MB)') := null;
+	param_array('DClarge pool (MB)') := null;
+	param_array('DCjava pool (MB)') := null;
+	param_array('DClog buffer (KB)') := null;
+	param_array('UPoptimal w/a exec %') := null;
+	param_array('UPsoft parse %') := null;
+	param_array('UPbuffer hit %') := null;
+	param_array('UPlibrary hit %') := null;
+	param_array('UPbuffer nowait %') := null;
 	param_array('DClogical reads per s') := null;
 	param_array('DCphysical reads per s') := null;
 	param_array('DCphysical writes per s') := null;
-	param_array('NCpga target') := null;
-	param_array('NCsga target') := null;
-	param_array('NCpga aggregate target') := null;
+	param_array('NCpga target (MB)') := null;
+	param_array('NCsga target (MB)') := null;
+	param_array('NCpga aggregate target (B)') := null;
 	param_array('DCtransactions per s') := null;
 	param_array('DCrollbacks per s') := null;
 	param_array('DCdbwr data file read (MB)') := null;
@@ -144,26 +147,26 @@ BEGIN
 	IF meta_info_array('MIend snap date') IS NULL AND LOWER(report_line) LIKE '%end snap:%' THEN 
 		meta_info_array('MIend snap date') := get_value_from_line(report_line, 'snap:', 2);
 	END IF;
-	find_value(param_array, report_line, 'DCbuffer cache', '%buffer cache:%', 'cache');
-	find_value(param_array, report_line, 'DCsga use', '%sga use (%', 'B)', 2);
-	find_value(param_array, report_line, 'DCpga use', '%pga use (%', 'B)', 2);
-	find_value(param_array, report_line, 'UChost mem', '%host mem (%', 'B)', 2);
-	find_value(param_array, report_line, 'DChost mem used for sga+pga %', '%host mem used for%', 'pga', 2);
-	find_value(param_array, report_line, 'DCshared pool', 'shared pool%', 'pool');
-	find_value(param_array, report_line, 'DClarge pool', 'large pool%', 'pool');
-	find_value(param_array, report_line, 'DCjava pool', '%java pool%', 'pool');
-	find_value(param_array, report_line, 'DClog buffer', '%log buffer:%', 'buffer');
-	find_value(param_array, report_line, 'UCoptimal w/a exec %', '%optimal w/a exec%', '%');
-	find_value(param_array, report_line, 'UCsoft parse %', '%soft parse%', '%');
-	find_value(param_array, report_line, 'UCbuffer hit %', '%buffer  hit%', '%');
-	find_value(param_array, report_line, 'UClibrary hit %', '%library hit%', '%');
-	find_value(param_array, report_line, 'UCbuffer nowait %', '%buffer nowait%', '%');
+	find_value(param_array, report_line, 'DSsga use (MB)', '%sga use (%', 'B)', 2);
+	find_value(param_array, report_line, 'DSpga use (MB)', '%pga use (%', 'B)', 2);
+	find_value(param_array, report_line, 'UShost mem (MB)', '%host mem (%', 'B)', 2);
+	find_value(param_array, report_line, 'DShost mem used for sga+pga %', '%host mem used for%', 'pga', 2);
+	find_value(param_array, report_line, 'DCbuffer cache (MB)', '%buffer cache:%', 'cache');
+	find_value(param_array, report_line, 'DCshared pool (MB)', 'shared pool%', 'pool');
+	find_value(param_array, report_line, 'DClarge pool (MB)', 'large pool%', 'pool');
+	find_value(param_array, report_line, 'DCjava pool (MB)', '%java pool%', 'pool');
+	find_value(param_array, report_line, 'DClog buffer (KB)', '%log buffer:%', 'buffer');
+	find_value(param_array, report_line, 'UPoptimal w/a exec %', '%optimal w/a exec%', '%');
+	find_value(param_array, report_line, 'UPsoft parse %', '%soft parse%', '%');
+	find_value(param_array, report_line, 'UPbuffer hit %', '%buffer  hit%', '%');
+	find_value(param_array, report_line, 'UPlibrary hit %', '%library hit%', '%');
+	find_value(param_array, report_line, 'UPbuffer nowait %', '%buffer nowait%', '%');
 	find_value(param_array, report_line, 'DClogical reads per s', '%logical reads%', 'reads');
 	find_value(param_array, report_line, 'DCphysical reads per s', '%physical reads%', 'reads');
 	find_value(param_array, report_line, 'DCphysical writes per s', '%physical writes%', 'writes');
-	find_value(param_array, report_line, 'NCsga target', 'sga target%', 'target');
-	find_value(param_array, report_line, 'NCpga target', 'pga target%', 'target');
-	find_value(param_array, report_line, 'NCpga aggregate target', 'pga_aggregate_target%', 'target');
+	find_value(param_array, report_line, 'NCsga target (MB)', 'sga target%', 'target');
+	find_value(param_array, report_line, 'NCpga target (MB)', 'pga target%', 'target');
+	find_value(param_array, report_line, 'NCpga aggregate target (B)', 'pga_aggregate_target%', 'target');
 	find_value(param_array, report_line, 'DCtransactions per s', '%transactions%', 'transactions');
 	find_value(param_array, report_line, 'DCrollbacks per s', '%rollbacks%', 'rollbacks');
 	find_sum_value(param_array, report_line, 'DCdbwr data file read (MB)', '%dbwr%', '%data file%', 'file', 1, 3);
@@ -216,7 +219,8 @@ PROCEDURE compare_and_display_params (
 	meta_info_array_new IN OUT meta_info_array_type)
 IS
 	param varchar2(45);
-	param_cat varchar2(2);
+	param_cat varchar2(1);
+	param_suggestion_cat varchar2(1);
 	old_value NUMBER;
 	new_value NUMBER;
 	loop_counter INTEGER;
@@ -226,7 +230,8 @@ BEGIN
 	order_param_arrays(param_array_old, param_array_new, meta_info_array_old, meta_info_array_new);
 	param := param_array_old.first;
 	WHILE (param IS NOT NULL) LOOP
-		param_cat := SUBSTR(param,1,2);
+		param_cat := SUBSTR(param,1,1);
+		param_suggestion_cat := SUBSTR(param,2,1);
 		dbms_output.put_line(chr(10) || param_index || '. ' || UPPER(SUBSTR(param, 3)));
 		FOR loop_counter IN 0..26 LOOP
 			dbms_output.put('~');
@@ -243,6 +248,9 @@ BEGIN
 					dbms_output.put_line(chr(9) || 'New value not found');
 				ELSE
 					dbms_output.put_line(chr(9) || 'New value: ' || new_value);
+					IF param_suggestion_cat = 'P' OR param_suggestion_cat = 'S' THEN
+						show_suggested_values(param_array_new, param);
+					END IF;
 				END IF;
 			ELSE
 				dbms_output.put_line(chr(9) || 'Old value: ' || old_value);
@@ -250,12 +258,14 @@ BEGIN
 					dbms_output.put_line(chr(9) || 'New value not found');
 				ELSE
 					dbms_output.put_line(chr(9) || 'New value: ' || new_value);
-					IF param_cat = 'UC' THEN
+					IF param_cat = 'U' THEN
 						compare_values(old_value, new_value);
-					ELSIF param_cat = 'DC' THEN
+					ELSIF param_cat = 'D' THEN
 						compare_values(new_value, old_value);
 					END IF;
-
+					IF param_suggestion_cat = 'P' OR param_suggestion_cat = 'S' THEN
+						show_suggested_values(param_array_new, param);
+					END IF;
 				END IF;
 			END IF;
 		END IF;
@@ -322,6 +332,7 @@ BEGIN
 	END IF;
 END;
 
+
 PROCEDURE find_sum_value(
 	param_array IN OUT param_array_type,
 	report_line IN VARCHAR2, 
@@ -340,6 +351,36 @@ BEGIN
 		value_at_nd_pos := get_num_val_from_line(report_line, key_word, value_position_nd);
 		value_at_nd_pos := value_at_nd_pos + value_at_st_pos;
 		param_array(param_name) := value_at_nd_pos; 
+	END IF;
+END;
+
+
+PROCEDURE show_suggested_values(
+	param_array IN OUT param_array_type, 
+	param_name IN VARCHAR2)
+IS
+temp_val NUMBER;
+param_suggestion_cat VARCHAR2(1);
+BEGIN
+	param_suggestion_cat := SUBSTR(param_name,2,1);
+	IF param_name = 'DSsga use (MB)' AND param_array('UShost mem (MB)') IS NOT NULL THEN
+		temp_val := 0.6 * param_array('UShost mem (MB)');
+		dbms_output.put_line(chr(9) || '---> Parameter value should be < 60% of host mem (< ' || temp_val || ' MB)');
+
+	ELSIF param_name = 'DSpga use (MB)'AND param_array('UShost mem (MB)') IS NOT NULL THEN
+		temp_val := 0.2 * param_array('UShost mem (MB)');
+		dbms_output.put_line(chr(9) || '---> Parameter value should be < 20% of host mem (< ' || temp_val || ' MB)');
+
+	ELSIF param_name = 'UShost mem (MB)' AND param_array('DSsga use (MB)') IS NOT NULL AND param_array('DSpga use (MB)') IS NOT NULL THEN
+		temp_val := 1.25 * (param_array('DSsga use (MB)') + param_array('DSpga use (MB)'));
+		dbms_output.put_line(chr(9) || '---> Parameter value should be > 125% of PGA and SGA use sum (> ' || temp_val || ' MB)');
+
+	ELSIF param_name = 'DShost mem used for sga+pga %' AND param_array('UShost mem (MB)') IS NOT NULL THEN
+		temp_val := 0.8 * param_array('UShost mem (MB)');
+		dbms_output.put_line(chr(9) || '---> Parameter value should be < 80% of host mem (< ' || temp_val || ' MB)');
+
+	ELSIF param_suggestion_cat = 'P' THEN
+		dbms_output.put_line(chr(9) || '---> Parameter value should be close to 100%');
 	END IF;
 END;
 
