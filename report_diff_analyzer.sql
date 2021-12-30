@@ -92,7 +92,7 @@ BEGIN
 	param_array('DClarge pool (MB)') := null;
 	param_array('DCjava pool (MB)') := null;
 	param_array('DClog buffer (KB)') := null;
-	param_array('UPoptimal w/a exec %') := null;
+	param_array('UCoptimal w/a exec %') := null;
 	param_array('UPsoft parse %') := null;
 	param_array('UPbuffer hit %') := null;
 	param_array('UPlibrary hit %') := null;
@@ -156,7 +156,7 @@ BEGIN
 	find_value(param_array, report_line, 'DClarge pool (MB)', 'large pool%', 'pool');
 	find_value(param_array, report_line, 'DCjava pool (MB)', '%java pool%', 'pool');
 	find_value(param_array, report_line, 'DClog buffer (KB)', '%log buffer:%', 'buffer');
-	find_value(param_array, report_line, 'UPoptimal w/a exec %', '%optimal w/a exec%', '%');
+	find_value(param_array, report_line, 'UCoptimal w/a exec %', '%optimal w/a exec%', '%');
 	find_value(param_array, report_line, 'UPsoft parse %', '%soft parse%', '%');
 	find_value(param_array, report_line, 'UPbuffer hit %', '%buffer  hit%', '%');
 	find_value(param_array, report_line, 'UPlibrary hit %', '%library hit%', '%');
