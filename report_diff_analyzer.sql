@@ -1,12 +1,24 @@
 SET SERVEROUTPUT ON;
 CREATE OR REPLACE PACKAGE report_diff_analyzer AS 
 TYPE param_array_type IS TABLE OF NUMBER INDEX BY VARCHAR2(45);
+TYPE meta_info_array_type IS TABLE OF VARCHAR2(70) INDEX BY VARCHAR2(45);
 PROCEDURE compare_reports (old_report_name IN VARCHAR2, new_report_name IN VARCHAR2);
 FUNCTION create_param_array RETURN param_array_type;
-PROCEDURE analyze_report (report_name IN VARCHAR2, param_array IN OUT param_array_type);
-PROCEDURE set_param_with_val (report_line IN VARCHAR2, param_array IN OUT param_array_type);
-FUNCTION split_varchar_by_space(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER) RETURN NUMBER;
-PROCEDURE compare_and_display_params(param_array_old IN param_array_type, param_array_new IN param_array_type);
+FUNCTION create_meta_info_array RETURN meta_info_array_type;
+PROCEDURE analyze_report (report_name IN VARCHAR2, param_array IN OUT param_array_type, meta_info_array IN OUT meta_info_array_type);
+PROCEDURE set_param_with_val (report_line IN VARCHAR2, param_array IN OUT param_array_type, meta_info_array IN OUT meta_info_array_type);
+FUNCTION get_num_val_from_line(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER DEFAULT 1) RETURN NUMBER;
+FUNCTION split_varchar_by_space(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER DEFAULT 1) RETURN VARCHAR2;
+PROCEDURE compare_and_display_params (
+	param_array_old IN OUT param_array_type, 
+	param_array_new IN OUT param_array_type, 
+	meta_info_array_old IN OUT meta_info_array_type, 
+	meta_info_array_new IN OUT meta_info_array_type);
+PROCEDURE order_param_arrays(
+	param_array_old IN OUT param_array_type, 
+	param_array_new IN OUT param_array_type, 
+	meta_info_array_old IN OUT meta_info_array_type, 
+	meta_info_array_new IN OUT meta_info_array_type);
 PROCEDURE compare_values(exp_worse_val IN NUMBER, exp_better_val IN NUMBER);
 END;
 /
@@ -18,6 +30,8 @@ old_report UTL_FILE.FILE_TYPE;
 new_report UTL_FILE.FILE_TYPE;
 param_array_old param_array_type;
 param_array_new param_array_type;
+meta_info_array_old meta_info_array_type;
+meta_info_array_new meta_info_array_type;
 BEGIN
 old_report := UTL_FILE.FOPEN(report_dir, old_report_name, 'R');
 new_report := UTL_FILE.FOPEN(report_dir, new_report_name, 'R');
@@ -25,9 +39,11 @@ UTL_FILE.FCLOSE(old_report);
 UTL_FILE.FCLOSE(new_report);
 param_array_old := create_param_array();
 param_array_new := create_param_array();
-analyze_report(old_report_name, param_array_old);
-analyze_report(new_report_name, param_array_new);
-compare_and_display_params(param_array_old, param_array_new);
+meta_info_array_old := create_meta_info_array();
+meta_info_array_new := create_meta_info_array();
+analyze_report(old_report_name, param_array_old, meta_info_array_old);
+analyze_report(new_report_name, param_array_new, meta_info_array_new);
+compare_and_display_params(param_array_old, param_array_new, meta_info_array_old, meta_info_array_new);
 EXCEPTION
 WHEN OTHERS THEN
 UTL_FILE.FCLOSE(old_report);
@@ -47,7 +63,14 @@ param_array('NCsga target') := null;
 param_array('NCpga target') := null;
 RETURN param_array;
 END;
-PROCEDURE analyze_report (report_name IN VARCHAR2, param_array IN OUT param_array_type)
+FUNCTION create_meta_info_array RETURN meta_info_array_type
+IS
+meta_info_array meta_info_array_type;
+BEGIN
+meta_info_array('MIend snap date') := null;
+RETURN meta_info_array;
+END;
+PROCEDURE analyze_report (report_name IN VARCHAR2, param_array IN OUT param_array_type, meta_info_array IN OUT meta_info_array_type)
 IS
 report_file UTL_FILE.FILE_TYPE;
 report_line VARCHAR2(32767);
@@ -56,7 +79,7 @@ report_file := UTL_FILE.FOPEN(report_dir, report_name, 'R');
 LOOP
 UTL_FILE.GET_LINE(report_file, report_line);
 IF report_line IS NOT NULL THEN
-set_param_with_val(report_line, param_array);
+set_param_with_val(report_line, param_array, meta_info_array);
 END IF;
 END LOOP;
 EXCEPTION
@@ -64,30 +87,44 @@ when NO_DATA_FOUND then
 UTL_FILE.FCLOSE(report_file);
 WHEN OTHERS THEN dbms_output.put_line('Error occurred > ' || SQLERRM);
 END;
-PROCEDURE set_param_with_val (report_line IN VARCHAR2, param_array IN OUT param_array_type)
+PROCEDURE set_param_with_val (report_line IN VARCHAR2, param_array IN OUT param_array_type, meta_info_array IN OUT meta_info_array_type)
 IS
 BEGIN
+    IF meta_info_array('MIend snap date') IS NULL AND LOWER(report_line) LIKE '%end snap:%' THEN 
+        meta_info_array('MIend snap date') := split_varchar_by_space(report_line, 'snap:', 2);
+    END IF;
     IF param_array('UCbuffer cache') IS NULL AND LOWER(report_line) LIKE '%buffer cache:%' THEN 
-        param_array('UCbuffer cache') := split_varchar_by_space(report_line, 'cache', 1);
+        param_array('UCbuffer cache') := get_num_val_from_line(report_line, 'cache');
     END IF;
     IF param_array('UCsga use') IS NULL AND LOWER(report_line) LIKE '%sga use (%' THEN 
-        param_array('UCsga use') := split_varchar_by_space(report_line, 'B)', 2);
+        param_array('UCsga use') := get_num_val_from_line(report_line, 'B)', 2);
     END IF;
     IF param_array('UCpga use') IS NULL AND LOWER(report_line) LIKE '%pga use (%' THEN 
-        param_array('UCpga use') := split_varchar_by_space(report_line, 'B)', 2);
+        param_array('UCpga use') := get_num_val_from_line(report_line, 'B)', 2);
     END IF;
     IF param_array('UChost mem') IS NULL AND LOWER(report_line) LIKE '%host mem (%' THEN 
-        param_array('UChost mem') := split_varchar_by_space(report_line, 'B)', 2);
+        param_array('UChost mem') := get_num_val_from_line(report_line, 'B)', 2);
     END IF;
     IF param_array('NCsga target') IS NULL AND LOWER(report_line) LIKE 'sga target%' THEN 
-        param_array('NCsga target') := split_varchar_by_space(report_line, 'target', 1);
+        param_array('NCsga target') := get_num_val_from_line(report_line, 'target');
     END IF;
     IF param_array('NCpga target') IS NULL AND LOWER(report_line) LIKE 'pga target%' THEN 
-        param_array('NCpga target') := split_varchar_by_space(report_line, 'target', 1);
+        param_array('NCpga target') := get_num_val_from_line(report_line, 'target');
     END IF;
 END;
-FUNCTION split_varchar_by_space(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER) 
+FUNCTION get_num_val_from_line(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER DEFAULT 1)
 RETURN NUMBER
+IS
+temp_val VARCHAR2(45);
+BEGIN
+	temp_val := split_varchar_by_space(report_line, key_word, value_order);
+	IF temp_val IS NOT NULL THEN
+		temp_val := TO_NUMBER(regexp_replace(temp_val, '[A-Za-z,]'));
+	END IF;
+	RETURN temp_val;
+END;
+FUNCTION split_varchar_by_space(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER DEFAULT 1) 
+RETURN VARCHAR2
 IS
     temp_index INTEGER := -1;
     number_of_separators NUMBER := regexp_count(report_line, '[^ ]+');
@@ -103,12 +140,16 @@ FOR CURRENT_ROW IN (
          temp_index := current_row.rownum + value_order;
     END IF;
     IF current_row.rownum = temp_index THEN
-        RETURN TO_NUMBER(regexp_replace(CURRENT_ROW.word, '[A-Za-z,]'));
+        RETURN CURRENT_ROW.word;
     END IF;
   END LOOP;
 	RETURN NULL;
 END;
-PROCEDURE compare_and_display_params (param_array_old IN param_array_type, param_array_new IN param_array_type)
+PROCEDURE compare_and_display_params (
+	param_array_old IN OUT param_array_type, 
+	param_array_new IN OUT param_array_type, 
+	meta_info_array_old IN OUT meta_info_array_type, 
+	meta_info_array_new IN OUT meta_info_array_type)
 IS
 param varchar2(45);
 param_cat varchar2(2);
@@ -116,6 +157,7 @@ old_value NUMBER;
 new_value NUMBER;
 loop_counter INTEGER;
 BEGIN
+	order_param_arrays(param_array_old, param_array_new, meta_info_array_old, meta_info_array_new);
 	param := param_array_old.first;
 	while (param is not null) loop
 		param_cat := SUBSTR(param,1,2);
@@ -151,6 +193,28 @@ BEGIN
 		param := param_array_old.next(param);
 	end loop;
 END;
+PROCEDURE order_param_arrays(
+	param_array_old IN OUT param_array_type, 
+	param_array_new IN OUT param_array_type, 
+	meta_info_array_old IN OUT meta_info_array_type, 
+	meta_info_array_new IN OUT meta_info_array_type)
+IS
+temp_param_array param_array_type := param_array_type();
+temp_meta_info_array meta_info_array_type := meta_info_array_type();
+BEGIN
+	IF meta_info_array_old('MIend snap date') IS NULL OR meta_info_array_new('MIend snap date') IS NULL THEN
+		dbms_output.put_line(chr(9) || '-> COULDN''T FIND END SNAPSHOTS CREATION DATES, REPORT ORDER WAS GIVEN BY USER <-');
+	ELSE
+		IF TO_DATE(meta_info_array_old('MIend snap date')) > TO_DATE(meta_info_array_new('MIend snap date')) THEN
+			temp_param_array := param_array_old;
+			param_array_old := param_array_new;
+			param_array_new := temp_param_array;
+			temp_meta_info_array := meta_info_array_old;
+			meta_info_array_old := meta_info_array_new;
+			meta_info_array_new := temp_meta_info_array;
+		END IF;
+	END IF;
+END;
 PROCEDURE compare_values(exp_worse_val IN NUMBER, exp_better_val IN NUMBER)
 IS
 param_diff NUMBER := 0;
@@ -169,3 +233,4 @@ BEGIN
 END;
 END;
 /
+
