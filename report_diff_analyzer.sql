@@ -7,7 +7,7 @@ PROCEDURE analyze_report (report_name IN VARCHAR2, param_array IN OUT param_arra
 PROCEDURE set_param_with_val (report_line IN VARCHAR2, param_array IN OUT param_array_type);
 FUNCTION split_varchar_by_space(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER) RETURN NUMBER;
 PROCEDURE compare_and_display_params(param_array_old IN param_array_type, param_array_new IN param_array_type);
-PROCEDURE compare_values(old_value IN NUMBER, new_value IN NUMBER, comparison_type IN BOOLEAN);
+PROCEDURE compare_values(exp_worse_val IN NUMBER, exp_better_val IN NUMBER);
 END;
 /
 CREATE OR REPLACE PACKAGE BODY report_diff_analyzer AS 
@@ -39,12 +39,12 @@ RETURN param_array_type
 IS
 param_array param_array_type;
 BEGIN
-param_array('sga use') := null;
-param_array('pga use') := null;
-param_array('host mem') := null;
-param_array('sga target') := null;
-param_array('pga target') := null;
-param_array('buffer cache') := null;
+param_array('UCsga use') := null;
+param_array('UCpga use') := null;
+param_array('UChost mem') := null;
+param_array('UCbuffer cache') := null;
+param_array('NCsga target') := null;
+param_array('NCpga target') := null;
 RETURN param_array;
 END;
 PROCEDURE analyze_report (report_name IN VARCHAR2, param_array IN OUT param_array_type)
@@ -67,23 +67,23 @@ END;
 PROCEDURE set_param_with_val (report_line IN VARCHAR2, param_array IN OUT param_array_type)
 IS
 BEGIN
-    IF param_array('buffer cache') IS NULL AND LOWER(report_line) LIKE '%buffer cache:%' THEN 
-        param_array('buffer cache') := split_varchar_by_space(report_line, 'cache', 1);
+    IF param_array('UCbuffer cache') IS NULL AND LOWER(report_line) LIKE '%buffer cache:%' THEN 
+        param_array('UCbuffer cache') := split_varchar_by_space(report_line, 'cache', 1);
     END IF;
-    IF param_array('sga use') IS NULL AND LOWER(report_line) LIKE '%sga use (%' THEN 
-        param_array('sga use') := split_varchar_by_space(report_line, 'B)', 2);
+    IF param_array('UCsga use') IS NULL AND LOWER(report_line) LIKE '%sga use (%' THEN 
+        param_array('UCsga use') := split_varchar_by_space(report_line, 'B)', 2);
     END IF;
-    IF param_array('pga use') IS NULL AND LOWER(report_line) LIKE '%pga use (%' THEN 
-        param_array('pga use') := split_varchar_by_space(report_line, 'B)', 2);
+    IF param_array('UCpga use') IS NULL AND LOWER(report_line) LIKE '%pga use (%' THEN 
+        param_array('UCpga use') := split_varchar_by_space(report_line, 'B)', 2);
     END IF;
-    IF param_array('sga target') IS NULL AND LOWER(report_line) LIKE 'sga target%' THEN 
-        param_array('sga target') := split_varchar_by_space(report_line, 'target', 1);
+    IF param_array('UChost mem') IS NULL AND LOWER(report_line) LIKE '%host mem (%' THEN 
+        param_array('UChost mem') := split_varchar_by_space(report_line, 'B)', 2);
     END IF;
-    IF param_array('pga target') IS NULL AND LOWER(report_line) LIKE 'pga target%' THEN 
-        param_array('pga target') := split_varchar_by_space(report_line, 'target', 1);
+    IF param_array('NCsga target') IS NULL AND LOWER(report_line) LIKE 'sga target%' THEN 
+        param_array('NCsga target') := split_varchar_by_space(report_line, 'target', 1);
     END IF;
-    IF param_array('host mem') IS NULL AND LOWER(report_line) LIKE '%host mem (%' THEN 
-        param_array('host mem') := split_varchar_by_space(report_line, 'B)', 2);
+    IF param_array('NCpga target') IS NULL AND LOWER(report_line) LIKE 'pga target%' THEN 
+        param_array('NCpga target') := split_varchar_by_space(report_line, 'target', 1);
     END IF;
 END;
 FUNCTION split_varchar_by_space(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER) 
@@ -111,13 +111,15 @@ END;
 PROCEDURE compare_and_display_params (param_array_old IN param_array_type, param_array_new IN param_array_type)
 IS
 param varchar2(45);
+param_cat varchar2(2);
 old_value NUMBER;
 new_value NUMBER;
 loop_counter INTEGER;
 BEGIN
 	param := param_array_old.first;
 	while (param is not null) loop
-		dbms_output.put_line(chr(10) || UPPER(param));
+		param_cat := SUBSTR(param,1,2);
+		dbms_output.put_line(chr(10) || UPPER(SUBSTR(param, 3)));
 		FOR loop_counter IN 0..15 LOOP
 			dbms_output.put('~');
 		END LOOP;
@@ -140,8 +142,8 @@ BEGIN
 					dbms_output.put_line(chr(9) || 'New value not found');
 				ELSE
 					dbms_output.put_line(chr(9) || 'New value: ' || new_value);
-					IF instr(param,'target',1) = 0 THEN
-						compare_values(old_value, new_value, TRUE);	
+					IF param_cat = 'UC' THEN
+						compare_values(old_value, new_value);	
 					END IF;
 				END IF;
 			END IF;
@@ -149,25 +151,20 @@ BEGIN
 		param := param_array_old.next(param);
 	end loop;
 END;
-PROCEDURE compare_values(old_value IN NUMBER, new_value IN NUMBER, comparison_type IN BOOLEAN)
+PROCEDURE compare_values(exp_worse_val IN NUMBER, exp_better_val IN NUMBER)
 IS
+param_diff NUMBER := 0;
 BEGIN
-	IF new_value = old_value THEN 
+	IF exp_better_val = exp_worse_val THEN 
 		dbms_output.put_line(chr(9) || '--> Parameter value did''t change');
 	ELSE
-		IF comparison_type THEN
-			IF new_value > old_value THEN 
-				dbms_output.put_line(chr(9) || '--> Parameter value got better!');
-			ELSE
-				dbms_output.put_line(chr(9) || '--> Parameter value got worse');
-			END IF;
+		IF exp_better_val > exp_worse_val THEN 
+			dbms_output.put_line(chr(9) || '--> Parameter value got better!');
 		ELSE
-			IF new_value < old_value THEN 
-				dbms_output.put_line(chr(9) || '--> Parameter value got better!');
-			ELSE
-				dbms_output.put_line(chr(9) || '--> Parameter value got worse');
-			END IF;
-		END IF;	
+			dbms_output.put_line(chr(9) || '--> Parameter value got worse');
+		END IF;
+		param_diff := exp_better_val-exp_worse_val;
+		dbms_output.put_line(chr(9) || '---> Difference between new value and old value is: ' ||  param_diff);
 	END IF;
 END;
 END;
