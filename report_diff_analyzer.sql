@@ -55,12 +55,23 @@ RETURN param_array_type
 IS
 param_array param_array_type;
 BEGIN
-param_array('UCsga use') := null;
-param_array('UCpga use') := null;
+param_array('DCsga use') := null;
+param_array('DCpga use') := null;
 param_array('UChost mem') := null;
-param_array('UCbuffer cache') := null;
-param_array('NCsga target') := null;
+param_array('DChost mem used for sga+pga %') := null;
+param_array('DCbuffer cache') := null;
+param_array('DCshared pool') := null;
+param_array('DClarge pool') := null;
+param_array('DCjava pool') := null;
+param_array('DClog buffer') := null;
+param_array('UCoptimal w/a exec %') := null;
+param_array('UCsoft parse %') := null;
+param_array('UCbuffer hit %') := null;
+param_array('UClibrary hit %') := null;
+param_array('UCbuffer nowait %') := null;
 param_array('NCpga target') := null;
+param_array('NCsga target') := null;
+param_array('NCpga aggregate target') := null;
 RETURN param_array;
 END;
 FUNCTION create_meta_info_array RETURN meta_info_array_type
@@ -90,26 +101,59 @@ END;
 PROCEDURE set_param_with_val (report_line IN VARCHAR2, param_array IN OUT param_array_type, meta_info_array IN OUT meta_info_array_type)
 IS
 BEGIN
-    IF meta_info_array('MIend snap date') IS NULL AND LOWER(report_line) LIKE '%end snap:%' THEN 
-        meta_info_array('MIend snap date') := split_varchar_by_space(report_line, 'snap:', 2);
-    END IF;
-    IF param_array('UCbuffer cache') IS NULL AND LOWER(report_line) LIKE '%buffer cache:%' THEN 
-        param_array('UCbuffer cache') := get_num_val_from_line(report_line, 'cache');
-    END IF;
-    IF param_array('UCsga use') IS NULL AND LOWER(report_line) LIKE '%sga use (%' THEN 
-        param_array('UCsga use') := get_num_val_from_line(report_line, 'B)', 2);
-    END IF;
-    IF param_array('UCpga use') IS NULL AND LOWER(report_line) LIKE '%pga use (%' THEN 
-        param_array('UCpga use') := get_num_val_from_line(report_line, 'B)', 2);
-    END IF;
-    IF param_array('UChost mem') IS NULL AND LOWER(report_line) LIKE '%host mem (%' THEN 
-        param_array('UChost mem') := get_num_val_from_line(report_line, 'B)', 2);
-    END IF;
-    IF param_array('NCsga target') IS NULL AND LOWER(report_line) LIKE 'sga target%' THEN 
-        param_array('NCsga target') := get_num_val_from_line(report_line, 'target');
-    END IF;
-    IF param_array('NCpga target') IS NULL AND LOWER(report_line) LIKE 'pga target%' THEN 
-        param_array('NCpga target') := get_num_val_from_line(report_line, 'target');
+	IF meta_info_array('MIend snap date') IS NULL AND LOWER(report_line) LIKE '%end snap:%' THEN 
+		meta_info_array('MIend snap date') := split_varchar_by_space(report_line, 'snap:', 2);
+	END IF;
+	IF param_array('DCbuffer cache') IS NULL AND LOWER(report_line) LIKE '%buffer cache:%' THEN 
+		param_array('DCbuffer cache') := get_num_val_from_line(report_line, 'cache');
+	END IF;
+	IF param_array('DCsga use') IS NULL AND LOWER(report_line) LIKE '%sga use (%' THEN 
+		param_array('DCsga use') := get_num_val_from_line(report_line, 'B)', 2);
+	END IF;
+	IF param_array('DCpga use') IS NULL AND LOWER(report_line) LIKE '%pga use (%' THEN 
+		param_array('DCpga use') := get_num_val_from_line(report_line, 'B)', 2);
+	END IF;
+	IF param_array('UChost mem') IS NULL AND LOWER(report_line) LIKE '%host mem (%' THEN 
+		param_array('UChost mem') := get_num_val_from_line(report_line, 'B)', 2);
+	END IF;
+	IF param_array('DChost mem used for sga+pga %') IS NULL AND LOWER(report_line) LIKE '%host mem used for%' THEN 
+		param_array('DChost mem used for sga+pga %') := get_num_val_from_line(report_line, 'pga', 2);
+	END IF;
+	IF param_array('DCshared pool') IS NULL AND LOWER(report_line) LIKE 'shared pool%' THEN 
+		param_array('DCshared pool') := get_num_val_from_line(report_line, 'pool');
+	END IF;
+	IF param_array('DClarge pool') IS NULL AND LOWER(report_line) LIKE 'large pool%' THEN 
+		param_array('DClarge pool') := get_num_val_from_line(report_line, 'pool');
+	END IF;
+	IF param_array('DCjava pool') IS NULL AND LOWER(report_line) LIKE '%java pool%' THEN 
+		param_array('DCjava pool') := get_num_val_from_line(report_line, 'pool');
+	END IF;
+	IF param_array('DClog buffer') IS NULL AND LOWER(report_line) LIKE '%log buffer:%' THEN 
+		param_array('DClog buffer') := get_num_val_from_line(report_line, 'buffer');
+	END IF;
+	IF param_array('UCoptimal w/a exec %') IS NULL AND LOWER(report_line) LIKE '%optimal w/a exec%' THEN 
+		param_array('UCoptimal w/a exec %') := get_num_val_from_line(report_line, '%');
+	END IF;
+	IF param_array('UCsoft parse %') IS NULL AND LOWER(report_line) LIKE '%soft parse%' THEN 
+		param_array('UCsoft parse %') := get_num_val_from_line(report_line, '%');
+	END IF;
+	IF param_array('UCbuffer hit %') IS NULL AND LOWER(report_line) LIKE '%buffer  hit%' THEN 
+		param_array('UCbuffer hit %') := get_num_val_from_line(report_line, '%');
+	END IF;
+	IF param_array('UClibrary hit %') IS NULL AND LOWER(report_line) LIKE '%library hit%' THEN 
+		param_array('UClibrary hit %') := get_num_val_from_line(report_line, '%');
+	END IF;
+	IF param_array('UCbuffer nowait %') IS NULL AND LOWER(report_line) LIKE '%buffer nowait%' THEN 
+		param_array('UCbuffer nowait %') := get_num_val_from_line(report_line, '%');
+	END IF;
+	IF param_array('NCsga target') IS NULL AND LOWER(report_line) LIKE 'sga target%' THEN 
+		param_array('NCsga target') := get_num_val_from_line(report_line, 'target');
+	END IF;
+	IF param_array('NCpga target') IS NULL AND LOWER(report_line) LIKE 'pga target%' THEN 
+		param_array('NCpga target') := get_num_val_from_line(report_line, 'target');
+	END IF;
+	IF param_array('NCpga aggregate target') IS NULL AND LOWER(report_line) LIKE 'pga_aggregate_target%' THEN 
+        param_array('NCpga aggregate target') := get_num_val_from_line(report_line, 'target');
     END IF;
 END;
 FUNCTION get_num_val_from_line(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER DEFAULT 1)
@@ -162,7 +206,7 @@ BEGIN
 	while (param is not null) loop
 		param_cat := SUBSTR(param,1,2);
 		dbms_output.put_line(chr(10) || UPPER(SUBSTR(param, 3)));
-		FOR loop_counter IN 0..15 LOOP
+		FOR loop_counter IN 0..21 LOOP
 			dbms_output.put('~');
 		END LOOP;
 		DBMS_OUTPUT.put_line(' ');
@@ -185,8 +229,11 @@ BEGIN
 				ELSE
 					dbms_output.put_line(chr(9) || 'New value: ' || new_value);
 					IF param_cat = 'UC' THEN
-						compare_values(old_value, new_value);	
+						compare_values(old_value, new_value);
+					ELSIF param_cat = 'DC' THEN
+						compare_values(new_value, old_value);
 					END IF;
+
 				END IF;
 			END IF;
 		END IF;
@@ -233,4 +280,3 @@ BEGIN
 END;
 END;
 /
-
