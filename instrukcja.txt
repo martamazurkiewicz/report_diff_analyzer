@@ -1,0 +1,26 @@
+1.
+systemctl start oracle-xe-18c 
+2.
+. oraenv
+ORACLE_SID = [admin] ? XE
+3.
+sqlplus sys/jWqDTg64qB@//localhost:1521/XEPDB1 as sysdba
+4.
+@/tmp/scripts/grand_access
+5.
+exec grand_access('/tmp/scripts');
+6. 
+exit
+7.
+sqlplus perfstat/jWqDTg64qB@//localhost:1521/XEPDB1
+8.
+@/tmp/scripts/report_diff_analyzer
+9.
+exec report_diff_analyzer.compare_reports('lev0report.lst','report_long_lev0.lst');
+10.
+exit
+
+Procedury sa zapisane w schematach, mozna je tylko wywolac bez odpalania skryptow, przed odpaleniem polecenie:
+	set serveroutput on;
+Jesli raporty sa w folderze /tmp/scripts wystarczy wywolac polecenie:
+	exec report_diff_analyzer.compare_reports('lev0report.lst','report_long_lev0.lst');
