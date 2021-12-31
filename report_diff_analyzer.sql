@@ -1,21 +1,18 @@
 SET SERVEROUTPUT ON;
 CREATE OR REPLACE PACKAGE report_diff_analyzer AS 
 	TYPE param_data_type IS RECORD (
-		description VARCHAR(45), 
-		key_phrase1 VARCHAR(45), 
-		key_phrase2 VARCHAR(45), 
-		key_word VARCHAR(45), 
+		description VARCHAR2(45), 
+		key_phrase1 VARCHAR2(45), 
+		key_phrase2 VARCHAR2(45), 
+		key_word VARCHAR2(45), 
 		word_offset1 INTEGER, 
 		word_offset2 INTEGER,
-		upper_comp BOOLEAN,
-		suggest_message VARCHAR2(150),
-		should_be_smaller_than_sugg_value BOOLEAN);
-
+		upper_comp BOOLEAN);
 	TYPE param_value_type IS RECORD (
 		old_value NUMBER,
 		new_value NUMBER,
 		param_diff NUMBER,
-		suggest_value NUMBER);
+		threshold_message VARCHAR2(150));
 
 	TYPE param_array_type IS TABLE OF param_data_type INDEX BY VARCHAR2(45);
 	TYPE param_value_array_type IS TABLE OF param_value_type INDEX BY VARCHAR2(45);
@@ -75,6 +72,9 @@ CREATE OR REPLACE PACKAGE report_diff_analyzer AS
 	PROCEDURE init_param_array;
 	PROCEDURE init_value_array;
 	PROCEDURE init_temp_array(temp_array IN OUT temp_array_type);
+	PROCEDURE display_suggestion(
+	param_name IN VARCHAR2);
+	PROCEDURE set_threshold_messages;
 END;
 /
 
@@ -101,6 +101,7 @@ BEGIN
 	analyze_report(new_report_name, temp_array_new, creation_date_new_rep);
 	check_rep_order_and_populate_val_arrays();
 	set_diff_values();
+	set_threshold_messages();
 	display_params();
 	dbms_output.put_line(chr(10) || '<-- STATSPACK REPORTS COMPARISON ~~~');
 EXCEPTION
@@ -345,9 +346,7 @@ BEGIN
 				display_value(value_array(param_name).old_value, 'Old');
 				display_value(value_array(param_name).new_value, 'New');
 				compare_values(param_name);
-						-- IF param_suggestion_cat = 'P' OR param_suggestion_cat = 'S' THEN
-						-- 	show_suggested_values(param_array_new, param);
-						-- END IF;
+				display_suggestion(param_name);
 		END IF;
 		param_name := param_array.next(param_name);
 		param_index := param_index + 1;
@@ -419,36 +418,36 @@ END;
 PROCEDURE init_param_array
 IS
 BEGIN
-	param_array('sga use') := param_data_type('sga use (MB)', '%sga use (%', null, 'B)', 2, null, FALSE, null, null);
-	param_array('pga use') := param_data_type('pga use (MB)', '%pga use (%', null, 'B)', 2, null, FALSE, null, null);
-	param_array('host mem') := param_data_type('host mem (MB)', '%host mem (%', null, 'B)', 2, null, TRUE, null, null);
-	param_array('host mem %') := param_data_type('host mem used for sga+pga %', '%host mem used for%', null, 'pga', 2, null, FALSE, null, null);
-	param_array('buffer cache') := param_data_type('buffer cache (MB)', '%buffer cache:%', null, 'cache', 1, null, FALSE, null, null);
+	param_array('sga use') := param_data_type('sga use (MB)', '%sga use (%', null, 'B)', 2, null, FALSE);
+	param_array('pga use') := param_data_type('pga use (MB)', '%pga use (%', null, 'B)', 2, null, FALSE);
+	param_array('host mem') := param_data_type('host mem (MB)', '%host mem (%', null, 'B)', 2, null, TRUE);
+	param_array('host mem %') := param_data_type('host mem used for sga+pga %', '%host mem used for%', null, 'pga', 2, null, FALSE);
+	param_array('buffer cache') := param_data_type('buffer cache (MB)', '%buffer cache:%', null, 'cache', 1, null, FALSE);
 
-	param_array('shared pool') := param_data_type('shared pool (MB)', 'shared pool%', null, 'pool', 1, null, FALSE, null, null);
-	param_array('large pool') := param_data_type('large pool (MB)', 'large pool%', null, 'pool', 1, null, FALSE, null, null);
-	param_array('java pool') := param_data_type('java pool (MB)', '%java pool%', null, 'pool', 1, null, FALSE, null, null);
-	param_array('log buffer') := param_data_type('log buffer (KB)', '%log buffer:%', null, 'buffer', 1, null, FALSE, null, null);
+	param_array('shared pool') := param_data_type('shared pool (MB)', 'shared pool%', null, 'pool', 1, null, FALSE);
+	param_array('large pool') := param_data_type('large pool (MB)', 'large pool%', null, 'pool', 1, null, FALSE);
+	param_array('java pool') := param_data_type('java pool (MB)', '%java pool%', null, 'pool', 1, null, FALSE);
+	param_array('log buffer') := param_data_type('log buffer (KB)', '%log buffer:%', null, 'buffer', 1, null, FALSE);
 
-	param_array('optimal wa exec') := param_data_type('optimal w/a exec %', '%optimal w/a exec%', null, '%', 1, null, null, null, null);
-	param_array('soft parse') := param_data_type('soft parse %', '%soft parse%', null, '%', 1, null, TRUE, null, null);
-	param_array('buffer hit') := param_data_type('buffer hit %', '%buffer  hit%', null, '%', 1, null, TRUE, null, null);
-	param_array('library hit') := param_data_type('library hit %', '%library hit%', null, '%', 1, null, TRUE, null, null);
+	param_array('optimal wa exec') := param_data_type('optimal w/a exec %', '%optimal w/a exec%', null, '%', 1, null, null);
+	param_array('soft parse') := param_data_type('soft parse %', '%soft parse%', null, '%', 1, null, TRUE);
+	param_array('buffer hit') := param_data_type('buffer hit %', '%buffer  hit%', null, '%', 1, null, TRUE);
+	param_array('library hit') := param_data_type('library hit %', '%library hit%', null, '%', 1, null, TRUE);
 
-	param_array('buffer nowait') := param_data_type('buffer nowait %', '%buffer nowait%', null, '%', 1, null, TRUE, null, null);
-	param_array('logical reads') := param_data_type('logical reads per s', '%logical reads%', null, 'reads', 1, null, FALSE, null, null);
-	param_array('physical reads') := param_data_type('physical reads per s', '%physical reads%', null, 'reads', 1, null, FALSE, null, null);
-	param_array('physical writes') := param_data_type('physical writes per s', '%physical writes%', null, 'writes', 1, null, FALSE, null, null);
+	param_array('buffer nowait') := param_data_type('buffer nowait %', '%buffer nowait%', null, '%', 1, null, TRUE);
+	param_array('logical reads') := param_data_type('logical reads per s', '%logical reads%', null, 'reads', 1, null, FALSE);
+	param_array('physical reads') := param_data_type('physical reads per s', '%physical reads%', null, 'reads', 1, null, FALSE);
+	param_array('physical writes') := param_data_type('physical writes per s', '%physical writes%', null, 'writes', 1, null, FALSE);
 
-	param_array('pga target') := param_data_type('pga target', 'pga target%', null, 'target', 1, null, null, null, null);
-	param_array('sga target') := param_data_type('sga target', 'sga target%', null, 'target', 1, null, null, null, null);
-	param_array('pga aggregate target') := param_data_type('pga aggregate target (B)', 'pga_aggregate_target%', null, 'target', 1, null, null, null, null);
-	param_array('transactions') := param_data_type('transactions per s', '%transactions%', null, 'transactions', 1, null, FALSE, null, null);
+	param_array('pga target') := param_data_type('pga target', 'pga target%', null, 'target', 1, null, null);
+	param_array('sga target') := param_data_type('sga target', 'sga target%', null, 'target', 1, null, null);
+	param_array('pga aggregate target') := param_data_type('pga aggregate target (B)', 'pga_aggregate_target%', null, 'target', 1, null, null);
+	param_array('transactions') := param_data_type('transactions per s', '%transactions%', null, 'transactions', 1, null, FALSE);
 
-	param_array('rollbacks') := param_data_type('rollbacks per s', '%rollbacks%', null, 'rollbacks', 1, null, FALSE, null, null);
-	param_array('dbwr read') := param_data_type('dbwr data file read (MB)', '%dbwr%', '%data file%', 'file', 1, 3, FALSE, null, null);
-	param_array('dbwr write') := param_data_type('dbwr data file write (MB)', '%dbwr%', '%data file%', 'file', 2, 4, FALSE, null, null);
-	param_array('lgwr write') := param_data_type('lgwr log file write (MB)', '%lgwr%', '%log file%', 'file', 2, 4, FALSE, null, null);
+	param_array('rollbacks') := param_data_type('rollbacks per s', '%rollbacks%', null, 'rollbacks', 1, null, FALSE);
+	param_array('dbwr read') := param_data_type('dbwr data file read (MB)', '%dbwr%', '%data file%', 'file', 1, 3, FALSE);
+	param_array('dbwr write') := param_data_type('dbwr data file write (MB)', '%dbwr%', '%data file%', 'file', 2, 4, FALSE);
+	param_array('lgwr write') := param_data_type('lgwr log file write (MB)', '%lgwr%', '%log file%', 'file', 2, 4, FALSE);
 END;
 
 
@@ -475,5 +474,40 @@ BEGIN
 	END LOOP;
 END;
 
+PROCEDURE display_suggestion(
+	param_name IN VARCHAR2)
+IS
+BEGIN
+	IF value_array(param_name).threshold_message IS NOT NULL THEN
+		dbms_output.put_line(chr(9) || '---> ' || value_array(param_name).threshold_message);
+	END IF;
+END;
+
+PROCEDURE set_threshold_messages
+IS
+temp_val NUMBER;
+BEGIN
+	IF value_array('host mem').new_value IS NOT NULL THEN
+		temp_val := 0.6 * value_array('host mem').new_value;
+		value_array('sga use').threshold_message := 'Parameter value should be < 60% of host mem (< ' || temp_val || ' MB)';
+		temp_val := 0.2 * value_array('host mem').new_value;
+		value_array('pga use').threshold_message := 'Parameter value should be < 20% of host mem (< ' || temp_val || ' MB)';
+		temp_val := 0.8 * value_array('host mem').new_value;
+		value_array('host mem %').threshold_message := 'Parameter value should be < 80% of host mem (< ' || temp_val || ' MB)';
+	END IF;
+	IF value_array('sga use').new_value IS NOT NULL AND 
+		value_array('pga use').new_value IS NOT NULL THEN
+			temp_val := 1.25 * (value_array('sga use').new_value + value_array('pga use').new_value);
+			value_array('host mem').threshold_message := 'Parameter value should be > 125% of PGA and SGA use sum (> ' || temp_val || ' MB)';
+	END IF;
+	IF value_array('optimal wa exec').new_value IS NOT NULL THEN
+		value_array('soft parse').threshold_message := 'Parameter value should be equal optimal w/a exec % (~' || value_array('optimal wa exec').new_value || '%)';
+	END IF;
+	value_array('buffer hit').threshold_message := 'Parameter value should be close to 100%';
+	value_array('library hit').threshold_message := 'Parameter value should be close to 100%';
+	value_array('buffer nowait').threshold_message := 'Parameter value should be close to 100%';
+END;
+
 END;
 /
+
