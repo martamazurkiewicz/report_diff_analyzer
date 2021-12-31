@@ -55,6 +55,9 @@ CREATE OR REPLACE PACKAGE report_diff_analyzer AS
 		word_offset IN INTEGER) RETURN VARCHAR2;
 	PROCEDURE check_rep_order_and_populate_val_arrays;
 	PROCEDURE populate_param_arrays_in_order;
+	PROCEDURE display_rep_creation_date(
+		exp_old_creation_date IN DATE,
+		exp_new_creation_date IN DATE);
 	PROCEDURE populate_value_arrays(
 		first_temp_array IN temp_array_type,
 		second_temp_array IN temp_array_type);
@@ -68,7 +71,7 @@ CREATE OR REPLACE PACKAGE report_diff_analyzer AS
 	param_name IN VARCHAR2);
 	PROCEDURE display_comparison(
 		param_diff IN NUMBER);
-	PROCEDURE init_arrays;
+	PROCEDURE init_package_variables;
 	PROCEDURE init_param_array;
 	PROCEDURE init_value_array;
 	PROCEDURE init_temp_array(temp_array IN OUT temp_array_type);
@@ -93,7 +96,7 @@ IS
 BEGIN
 	check_if_reports_exist(old_report_name, new_report_name);	
 	dbms_output.put_line('~~~ STATSPACK REPORTS COMPARISON -->');
-	init_arrays();
+	init_package_variables();
 	analyze_report(old_report_name, temp_array_old, creation_date_old_rep);
 	analyze_report(new_report_name, temp_array_new, creation_date_new_rep);
 	check_rep_order_and_populate_val_arrays();
@@ -265,10 +268,22 @@ BEGIN
 		dbms_output.put_line(chr(9) || '-> COULDN''T FIND END SNAPSHOTS CREATION DATES, REPORT ORDER WAS GIVEN BY USER <-');
 		populate_value_arrays(temp_array_old, temp_array_new);
 	ELSE
-		dbms_output.put_line(chr(9) || '-> Old raport''s end snapshot creation date: ' || creation_date_old_rep || ' <-');
-		dbms_output.put_line(chr(9) || '-> New raport''s end snapshot creation date: ' || creation_date_new_rep || ' <-');
+		IF TO_DATE(creation_date_new_rep) > TO_DATE(creation_date_old_rep) THEN
+			display_rep_creation_date(creation_date_old_rep, creation_date_new_rep);
+		ELSE
+			display_rep_creation_date(creation_date_new_rep, creation_date_old_rep);
+		END IF;
 		populate_param_arrays_in_order();
 	END IF;
+END;
+
+PROCEDURE display_rep_creation_date(
+	exp_old_creation_date IN DATE,
+	exp_new_creation_date IN DATE)
+IS
+BEGIN
+	dbms_output.put_line(chr(9) || '-> Old report''s end snapshot creation date: ' || exp_old_creation_date || ' <-');
+	dbms_output.put_line(chr(9) || '-> New report''s end snapshot creation date: ' || exp_new_creation_date || ' <-');
 END;
 
 PROCEDURE populate_param_arrays_in_order
@@ -389,9 +404,11 @@ BEGIN
 END;
 
 
-PROCEDURE init_arrays
+PROCEDURE init_package_variables
 IS
 BEGIN
+	creation_date_old_rep := null;
+	creation_date_new_rep := null;
 	init_param_array();
 	init_value_array();
 	init_temp_array(temp_array_old);
