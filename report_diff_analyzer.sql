@@ -14,7 +14,7 @@ CREATE OR REPLACE PACKAGE report_diff_analyzer AS
 	TYPE param_value_type IS RECORD (
 		old_value NUMBER,
 		new_value NUMBER,
-		diff NUMBER,
+		param_diff NUMBER,
 		suggest_value NUMBER);
 
 	TYPE param_array_type IS TABLE OF param_data_type INDEX BY VARCHAR2(45);
@@ -64,8 +64,10 @@ CREATE OR REPLACE PACKAGE report_diff_analyzer AS
 		param_value IN NUMBER,
 		text_arg IN VARCHAR2);
 	PROCEDURE display_decoration_chars;
+	PROCEDURE compare_values(
+	param_name IN VARCHAR2);
 	PROCEDURE display_comparison(
-		diff IN NUMBER);
+		param_diff IN NUMBER);
 	PROCEDURE init_arrays;
 	PROCEDURE init_param_array;
 	PROCEDURE init_value_array;
@@ -90,12 +92,14 @@ PROCEDURE compare_reports(
 IS
 BEGIN
 	check_if_reports_exist(old_report_name, new_report_name);	
+	dbms_output.put_line('~~~ STATSPACK REPORTS COMPARISON -->');
 	init_arrays();
 	analyze_report(old_report_name, temp_array_old, creation_date_old_rep);
 	analyze_report(new_report_name, temp_array_new, creation_date_new_rep);
 	check_rep_order_and_populate_val_arrays();
 	set_diff_values();
 	display_params();
+	dbms_output.put_line(chr(10) || '<-- STATSPACK REPORTS COMPARISON ~~~');
 EXCEPTION
 	WHEN OTHERS THEN
 		UTL_FILE.FCLOSE_ALL;
@@ -109,9 +113,13 @@ PROCEDURE check_if_reports_exist(
 IS
 	fexists_old BOOLEAN;
 	fexists_new BOOLEAN;
+	file_length_old NUMBER;
+	file_length_new NUMBER;
+	block_size_old BINARY_INTEGER;
+	block_size_new BINARY_INTEGER;
 BEGIN
-	UTL_FILE.FGETATTR(REPORT_DIR, old_report_name, fexists_old);
-	UTL_FILE.FGETATTR(REPORT_DIR, new_report_name, fexists_new);
+	UTL_FILE.FGETATTR(REPORT_DIR, old_report_name, fexists_old, file_length_old, block_size_old);
+	UTL_FILE.FGETATTR(REPORT_DIR, new_report_name, fexists_new, file_length_new, block_size_new);
 	IF NOT fexists_old OR NOT fexists_new THEN
 		RAISE UTL_FILE.INVALID_FILENAME;
 	END IF;
@@ -250,7 +258,7 @@ BEGIN
 	RETURN NULL;
 END;
 
-PROCEDURE check_rep_order_and_populate_val_arrays()
+PROCEDURE check_rep_order_and_populate_val_arrays
 IS
 BEGIN
 	IF creation_date_new_rep IS NULL OR creation_date_old_rep IS NULL THEN
@@ -263,7 +271,7 @@ BEGIN
 	END IF;
 END;
 
-PROCEDURE populate_param_arrays_in_order()
+PROCEDURE populate_param_arrays_in_order
 IS
 BEGIN
 	IF TO_DATE(creation_date_new_rep) > TO_DATE(creation_date_old_rep) THEN
@@ -287,7 +295,7 @@ BEGIN
 	END LOOP;
 END;
 
-PROCEDURE set_diff_values()
+PROCEDURE set_diff_values
 IS
 	param_name VARCHAR2(45);
 BEGIN
@@ -297,24 +305,23 @@ BEGIN
 			AND value_array(param_name).old_value IS NOT NULL
 			AND value_array(param_name).new_value IS NOT NULL THEN 
 				IF param_array(param_name).upper_comp THEN
-					param_array(param_name).diff := value_array(param_name).new_value - value_array(param_name).old_value;
+					value_array(param_name).param_diff := value_array(param_name).new_value - value_array(param_name).old_value;
 				ELSE
-					param_array(param_name).diff := value_array(param_name).old_value - value_array(param_name).new_value;
+					value_array(param_name).param_diff := value_array(param_name).old_value - value_array(param_name).new_value;
 				END IF;
 		END IF;
 		param_name := param_array.next(param_name);
 	END LOOP;
 END;
 
-PROCEDURE display_params()
+PROCEDURE display_params
 IS
 	param_name VARCHAR2(45);
 	param_index INTEGER := 1;
 BEGIN
-	dbms_output.put_line('~~~ STATSPACK REPORTS COMPARISON -->');
 	param_name := param_array.first;
 	WHILE (param_name IS NOT NULL) LOOP
-		dbms_output.put_line(chr(10) || param_index || '. ' || UPPER(SUBSTR(param, 3)));
+		dbms_output.put_line(chr(10) || param_index || '. ' || UPPER(param_array(param_name).description));
 		display_decoration_chars();
 		IF value_array(param_name).old_value IS NULL AND 
 			value_array(param_name).new_value IS NULL THEN
@@ -330,7 +337,6 @@ BEGIN
 		param_name := param_array.next(param_name);
 		param_index := param_index + 1;
 	END LOOP;
-	dbms_output.put_line(chr(10) || '<-- STATSPACK REPORTS COMPARISON ~~~');
 END;
 
 
@@ -342,12 +348,12 @@ BEGIN
 	IF param_value IS NULL THEN
 		dbms_output.put_line(chr(9) || text_arg || ' value not found');
 	ELSE
-		dbms_output.put_line(chr(9) || text_arg || ' value: ' || new_value);
+		dbms_output.put_line(chr(9) || text_arg || ' value: ' || param_value);
 	END IF;
 END;
 
 
-PROCEDURE display_decoration_chars()
+PROCEDURE display_decoration_chars
 IS
 	loop_counter INTEGER;
 BEGIN
@@ -362,28 +368,28 @@ PROCEDURE compare_values(
 	param_name IN VARCHAR2)
 IS
 BEGIN
-	IF param_array(param_name).diff IS NOT NULL THEN
-		display_comparison(param_array(param_name).diff);
+	IF value_array(param_name).param_diff IS NOT NULL THEN
+		display_comparison(value_array(param_name).param_diff);
 	END IF;
 END;
 
 
 PROCEDURE display_comparison(
-	diff IN NUMBER)
+	param_diff IN NUMBER)
 IS
 BEGIN
-	IF diff = 0 THEN 
+	IF param_diff = 0 THEN 
 		dbms_output.put_line(chr(9) || '--> Parameter value did''t change');
-	ELSIF diff > 0 THEN 
+	ELSIF param_diff > 0 THEN 
 		dbms_output.put_line(chr(9) || '--> Parameter value got better!');
 	ELSE
 		dbms_output.put_line(chr(9) || '--> Parameter value got worse');
 	END IF;
-	dbms_output.put_line(chr(9) || '---> Difference between new value and old value is: ' ||  diff);
+	dbms_output.put_line(chr(9) || '---> Difference between new value and old value is: ' ||  param_diff);
 END;
 
 
-PROCEDURE init_arrays()
+PROCEDURE init_arrays
 IS
 BEGIN
 	init_param_array();
@@ -393,7 +399,7 @@ BEGIN
 END;
 
 
-PROCEDURE init_param_array()
+PROCEDURE init_param_array
 IS
 BEGIN
 	param_array('sga use') := param_data_type('sga use (MB)', '%sga use (%', null, 'B)', 2, null, FALSE, null, null);
@@ -429,7 +435,7 @@ BEGIN
 END;
 
 
-PROCEDURE init_value_array()
+PROCEDURE init_value_array
 IS
 param_name VARCHAR2(45);
 BEGIN
