@@ -1,76 +1,75 @@
 SET SERVEROUTPUT ON;
 CREATE OR REPLACE PACKAGE report_diff_analyzer AS 
+	TYPE param_data_type IS RECORD (
+		description VARCHAR(45), 
+		key_phrase1 VARCHAR(45), 
+		key_phrase2 VARCHAR(45), 
+		key_word VARCHAR(45), 
+		word_offset1 INTEGER, 
+		word_offset2 INTEGER,
+		upper_comp BOOLEAN,
+		suggest_message VARCHAR2(150),
+		should_be_smaller_than_sugg_value BOOLEAN);
 
-TYPE param_data_type AS OBJECT (
-	description VARCHAR(45), 
-	key_phrase1 VARCHAR(45), 
-	key_phrase2 VARCHAR(45), 
-	key_word VARCHAR(45), 
-	word_offset1 INTEGER, 
-	word_offset2 INTEGER,
-	upper_comp BOOLEAN,
-	suggest_message VARCHAR2(150),
-	should_be_smaller_than_sugg_value BOOLEAN);
+	TYPE param_value_type IS RECORD (
+		old_value NUMBER,
+		new_value NUMBER,
+		diff NUMBER,
+		suggest_value NUMBER);
 
-TYPE param_value_type AS OBJECT (
-	old_value NUMBER,
-	new_value NUMBER,
-	diff NUMBER,
-	suggest_value NUMBER);
-
-TYPE param_array_type IS TABLE OF param_data_type INDEX BY VARCHAR2(45);
-TYPE param_value_array_type IS TABLE OF param_value_type INDEX BY VARCHAR2(45);
-TYPE temp_array_type IS TABLE OF VARCHAR2(70) INDEX BY NUMBER;
-PROCEDURE compare_reports(
-	old_report_name IN VARCHAR2, 
-	new_report_name IN VARCHAR2);
-PROCEDURE check_if_reports_exist(
-	old_report_name IN VARCHAR2, 
-	new_report_name IN VARCHAR2);
-PROCEDURE analyze_report(
-	report_name IN VARCHAR2, 
-	temp_array IN OUT temp_array_type
-	rep_creation_date IN OUT DATE);
-PROCEDURE set_val(
-	report_line IN VARCHAR2, 
-	temp_array IN OUT temp_array_type,
-	rep_creation_date IN OUT DATE);
-PROCEDURE set_date_from_line(
-	report_line IN VARCHAR2, 
-	rep_creation_date IN OUT DATE);
-PROCEDURE set_value_from_line(
-	report_line IN VARCHAR2, 
-	temp_array IN OUT temp_array_type,
-	param_name IN VARCHAR2);
-PROCEDURE set_sum_value_from_line(
-	report_line IN VARCHAR2, 
-	temp_array IN OUT temp_array_type,
-	param_name IN VARCHAR2);
-FUNCTION get_num_val_from_line(
-	report_line IN VARCHAR2, 
-	key_word IN VARCHAR2, 
-	word_offset IN INTEGER) RETURN NUMBER;
-FUNCTION get_value_from_line(
-	report_line IN VARCHAR2, 
-	key_word IN VARCHAR2, 
-	word_offset IN INTEGER) RETURN VARCHAR2;
-PROCEDURE check_rep_order_and_populate_val_arrays();
-PROCEDURE populate_param_arrays_in_order();
-PROCEDURE populate_value_arrays(
-	first_temp_array IN temp_array_type,
-	second_temp_array IN temp_array_type);
-PROCEDURE set_diff_values();
-PROCEDURE display_params();
-PROCEDURE display_value(
-	param_value IN NUMBER,
-	text_arg IN VARCHAR2);
-PROCEDURE display_decoration_chars();
-PROCEDURE display_comparison(
-	diff IN NUMBER);
-PROCEDURE init_arrays();
-PROCEDURE init_param_array();
-PROCEDURE init_value_array();
-PROCEDURE init_temp_array(temp_array IN OUT temp_array_type);
+	TYPE param_array_type IS TABLE OF param_data_type INDEX BY VARCHAR2(45);
+	TYPE param_value_array_type IS TABLE OF param_value_type INDEX BY VARCHAR2(45);
+	TYPE temp_array_type IS TABLE OF VARCHAR2(70) INDEX BY VARCHAR2(45);
+	PROCEDURE compare_reports(
+		old_report_name IN VARCHAR2, 
+		new_report_name IN VARCHAR2);
+	PROCEDURE check_if_reports_exist(
+		old_report_name IN VARCHAR2, 
+		new_report_name IN VARCHAR2);
+	PROCEDURE analyze_report(
+		report_name IN VARCHAR2, 
+		temp_array IN OUT temp_array_type,
+		rep_creation_date IN OUT DATE);
+	PROCEDURE set_val(
+		report_line IN VARCHAR2, 
+		temp_array IN OUT temp_array_type,
+		rep_creation_date IN OUT DATE);
+	PROCEDURE set_date_from_line(
+		report_line IN VARCHAR2, 
+		rep_creation_date IN OUT DATE);
+	PROCEDURE set_value_from_line(
+		report_line IN VARCHAR2, 
+		temp_array IN OUT temp_array_type,
+		param_name IN VARCHAR2);
+	PROCEDURE set_sum_value_from_line(
+		report_line IN VARCHAR2, 
+		temp_array IN OUT temp_array_type,
+		param_name IN VARCHAR2);
+	FUNCTION get_num_val_from_line(
+		report_line IN VARCHAR2, 
+		key_word IN VARCHAR2, 
+		word_offset IN INTEGER) RETURN NUMBER;
+	FUNCTION get_value_from_line(
+		report_line IN VARCHAR2, 
+		key_word IN VARCHAR2, 
+		word_offset IN INTEGER) RETURN VARCHAR2;
+	PROCEDURE check_rep_order_and_populate_val_arrays;
+	PROCEDURE populate_param_arrays_in_order;
+	PROCEDURE populate_value_arrays(
+		first_temp_array IN temp_array_type,
+		second_temp_array IN temp_array_type);
+	PROCEDURE set_diff_values;
+	PROCEDURE display_params;
+	PROCEDURE display_value(
+		param_value IN NUMBER,
+		text_arg IN VARCHAR2);
+	PROCEDURE display_decoration_chars;
+	PROCEDURE display_comparison(
+		diff IN NUMBER);
+	PROCEDURE init_arrays;
+	PROCEDURE init_param_array;
+	PROCEDURE init_value_array;
+	PROCEDURE init_temp_array(temp_array IN OUT temp_array_type);
 END;
 /
 
@@ -121,7 +120,7 @@ END;
 
 PROCEDURE analyze_report(
 	report_name IN VARCHAR2, 
-	temp_array IN OUT temp_array_type
+	temp_array IN OUT temp_array_type,
 	rep_creation_date IN OUT DATE)
 IS
 	report_file UTL_FILE.FILE_TYPE;
