@@ -1,186 +1,224 @@
 SET SERVEROUTPUT ON;
 CREATE OR REPLACE PACKAGE report_diff_analyzer AS 
-TYPE param_array_type IS TABLE OF NUMBER INDEX BY VARCHAR2(45);
-TYPE meta_info_array_type IS TABLE OF VARCHAR2(70) INDEX BY VARCHAR2(45);
-PROCEDURE compare_reports (old_report_name IN VARCHAR2, new_report_name IN VARCHAR2);
-FUNCTION create_param_array RETURN param_array_type;
-FUNCTION create_meta_info_array RETURN meta_info_array_type;
-PROCEDURE analyze_report (report_name IN VARCHAR2, param_array IN OUT param_array_type, meta_info_array IN OUT meta_info_array_type);
-PROCEDURE set_param_with_val (report_line IN VARCHAR2, param_array IN OUT param_array_type, meta_info_array IN OUT meta_info_array_type);
-FUNCTION get_num_val_from_line(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER DEFAULT 1) RETURN NUMBER;
-FUNCTION get_value_from_line(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER DEFAULT 1) RETURN VARCHAR2;
-PROCEDURE compare_and_display_params (
-	param_array_old IN OUT param_array_type, 
-	param_array_new IN OUT param_array_type, 
-	meta_info_array_old IN OUT meta_info_array_type, 
-	meta_info_array_new IN OUT meta_info_array_type);
-PROCEDURE order_param_arrays(
-	param_array_old IN OUT param_array_type, 
-	param_array_new IN OUT param_array_type, 
-	meta_info_array_old IN OUT meta_info_array_type, 
-	meta_info_array_new IN OUT meta_info_array_type);
-PROCEDURE compare_values(exp_worse_val IN NUMBER, exp_better_val IN NUMBER);
-PROCEDURE find_value(
-	param_array IN OUT param_array_type,
+
+TYPE param_data_type AS OBJECT (
+	description VARCHAR(45), 
+	key_phrase1 VARCHAR(45), 
+	key_phrase2 VARCHAR(45), 
+	key_word VARCHAR(45), 
+	word_offset1 INTEGER, 
+	word_offset2 INTEGER,
+	upper_comp BOOLEAN,
+	suggest_message VARCHAR2(150),
+	should_be_smaller_than_sugg_value BOOLEAN);
+
+TYPE param_value_type AS OBJECT (
+	old_value NUMBER,
+	new_value NUMBER,
+	diff NUMBER,
+	suggest_value NUMBER);
+
+TYPE param_array_type IS TABLE OF param_data_type INDEX BY VARCHAR2(45);
+TYPE param_value_array_type IS TABLE OF param_value_type INDEX BY VARCHAR2(45);
+TYPE temp_array_type IS TABLE OF VARCHAR2(70) INDEX BY NUMBER;
+PROCEDURE compare_reports(
+	old_report_name IN VARCHAR2, 
+	new_report_name IN VARCHAR2);
+PROCEDURE check_if_reports_exist(
+	old_report_name IN VARCHAR2, 
+	new_report_name IN VARCHAR2);
+PROCEDURE analyze_report(
+	report_name IN VARCHAR2, 
+	temp_array IN OUT temp_array_type
+	rep_creation_date IN OUT DATE);
+PROCEDURE set_val(
 	report_line IN VARCHAR2, 
-	param_name IN VARCHAR2, 
-	key_phrase IN VARCHAR2, 
-	key_word VARCHAR2, 
-	value_position IN NUMBER DEFAULT 1);
-PROCEDURE find_sum_value(
-	param_array IN OUT param_array_type,
+	temp_array IN OUT temp_array_type,
+	rep_creation_date IN OUT DATE);
+PROCEDURE set_date_from_line(
 	report_line IN VARCHAR2, 
-	param_name IN VARCHAR2, 
-	key_phrase_st IN VARCHAR2,
-	key_phrase_nd IN VARCHAR2,  
-	key_word VARCHAR2, 
-	value_position_st IN NUMBER,
-	value_position_nd IN NUMBER);
-PROCEDURE show_suggested_values(
-	param_array IN OUT param_array_type, 
+	rep_creation_date IN OUT DATE);
+PROCEDURE set_value_from_line(
+	report_line IN VARCHAR2, 
+	temp_array IN OUT temp_array_type,
 	param_name IN VARCHAR2);
+PROCEDURE set_sum_value_from_line(
+	report_line IN VARCHAR2, 
+	temp_array IN OUT temp_array_type,
+	param_name IN VARCHAR2);
+FUNCTION get_num_val_from_line(
+	report_line IN VARCHAR2, 
+	key_word IN VARCHAR2, 
+	word_offset IN INTEGER) RETURN NUMBER;
+FUNCTION get_value_from_line(
+	report_line IN VARCHAR2, 
+	key_word IN VARCHAR2, 
+	word_offset IN INTEGER) RETURN VARCHAR2;
+PROCEDURE check_rep_order_and_populate_val_arrays();
+PROCEDURE populate_param_arrays_in_order();
+PROCEDURE populate_value_arrays(
+	first_temp_array IN temp_array_type,
+	second_temp_array IN temp_array_type);
+PROCEDURE set_diff_values();
+PROCEDURE display_params();
+PROCEDURE display_value(
+	param_value IN NUMBER,
+	text_arg IN VARCHAR2);
+PROCEDURE display_decoration_chars();
+PROCEDURE display_comparison(
+	diff IN NUMBER);
+PROCEDURE init_arrays();
+PROCEDURE init_param_array();
+PROCEDURE init_value_array();
+PROCEDURE init_temp_array(temp_array IN OUT temp_array_type);
 END;
 /
 
 
+
 CREATE OR REPLACE PACKAGE BODY report_diff_analyzer AS 
-	report_dir VARCHAR2(20) := 'REPORT_DIR';
-	--param_array_old param_array_type;
-	--param_array_new param_array_type;
-	--meta_info_array_old meta_info_array_type;
-	--meta_info_array_new meta_info_array_type;
+	REPORT_DIR VARCHAR2(20) := 'REPORT_DIR';
+	creation_date_old_rep DATE := null;
+	creation_date_new_rep DATE := null;
+	param_array param_array_type;
+	value_array param_value_array_type;
+	temp_array_old temp_array_type;
+	temp_array_new temp_array_type;
 
-
-PROCEDURE compare_reports (old_report_name IN VARCHAR2, new_report_name IN VARCHAR2) 
+PROCEDURE compare_reports(
+	old_report_name IN VARCHAR2, 
+	new_report_name IN VARCHAR2) 
 IS
-	old_report UTL_FILE.FILE_TYPE;
-	new_report UTL_FILE.FILE_TYPE;
-	param_array_old param_array_type;
-	param_array_new param_array_type;
-	meta_info_array_old meta_info_array_type;
-	meta_info_array_new meta_info_array_type;
 BEGIN
-	old_report := UTL_FILE.FOPEN(report_dir, old_report_name, 'R');
-	new_report := UTL_FILE.FOPEN(report_dir, new_report_name, 'R');
-	UTL_FILE.FCLOSE(old_report);
-	UTL_FILE.FCLOSE(new_report);
-	param_array_old := create_param_array();
-	param_array_new := create_param_array();
-	meta_info_array_old := create_meta_info_array();
-	meta_info_array_new := create_meta_info_array();
-	analyze_report(old_report_name, param_array_old, meta_info_array_old);
-	analyze_report(new_report_name, param_array_new, meta_info_array_new);
-	compare_and_display_params(param_array_old, param_array_new, meta_info_array_old, meta_info_array_new);
+	check_if_reports_exist(old_report_name, new_report_name);	
+	init_arrays();
+	analyze_report(old_report_name, temp_array_old, creation_date_old_rep);
+	analyze_report(new_report_name, temp_array_new, creation_date_new_rep);
+	check_rep_order_and_populate_val_arrays();
+	set_diff_values();
+	display_params();
 EXCEPTION
 	WHEN OTHERS THEN
-	UTL_FILE.FCLOSE(old_report);
-	UTL_FILE.FCLOSE(new_report);
-	dbms_output.put_line('Error occurred > ' || SQLERRM);
+		UTL_FILE.FCLOSE_ALL;
+		dbms_output.put_line('Error occurred > ' || SQLERRM);
 END;
 
 
-FUNCTION create_param_array RETURN param_array_type
+PROCEDURE check_if_reports_exist(
+	old_report_name IN VARCHAR2, 
+	new_report_name IN VARCHAR2) 
 IS
-	param_array param_array_type;
+	fexists_old BOOLEAN;
+	fexists_new BOOLEAN;
 BEGIN
-	param_array('DSsga use (MB)') := null;
-	param_array('DSpga use (MB)') := null;
-	param_array('UShost mem (MB)') := null;
-	param_array('DShost mem used for sga+pga %') := null;
-	param_array('DCbuffer cache (MB)') := null;
-	param_array('DCshared pool (MB)') := null;
-	param_array('DClarge pool (MB)') := null;
-	param_array('DCjava pool (MB)') := null;
-	param_array('DClog buffer (KB)') := null;
-	param_array('UCoptimal w/a exec %') := null;
-	param_array('UPsoft parse %') := null;
-	param_array('UPbuffer hit %') := null;
-	param_array('UPlibrary hit %') := null;
-	param_array('UPbuffer nowait %') := null;
-	param_array('DClogical reads per s') := null;
-	param_array('DCphysical reads per s') := null;
-	param_array('DCphysical writes per s') := null;
-	param_array('NCpga target (MB)') := null;
-	param_array('NCsga target (MB)') := null;
-	param_array('NCpga aggregate target (B)') := null;
-	param_array('DCtransactions per s') := null;
-	param_array('DCrollbacks per s') := null;
-	param_array('DCdbwr data file read (MB)') := null;
-	param_array('DCdbwr data file write (MB)') := null;
-	param_array('DClgwr log file write (MB)') := null;
-RETURN param_array;
+	UTL_FILE.FGETATTR(REPORT_DIR, old_report_name, fexists_old);
+	UTL_FILE.FGETATTR(REPORT_DIR, new_report_name, fexists_new);
+	IF NOT fexists_old OR NOT fexists_new THEN
+		RAISE UTL_FILE.INVALID_FILENAME;
+	END IF;
 END;
 
 
-FUNCTION create_meta_info_array RETURN meta_info_array_type
-IS
-	meta_info_array meta_info_array_type;
-BEGIN
-	meta_info_array('MIend snap date') := null;
-RETURN meta_info_array;
-END;
-
-
-PROCEDURE analyze_report (report_name IN VARCHAR2, param_array IN OUT param_array_type, meta_info_array IN OUT meta_info_array_type)
+PROCEDURE analyze_report(
+	report_name IN VARCHAR2, 
+	temp_array IN OUT temp_array_type
+	rep_creation_date IN OUT DATE)
 IS
 	report_file UTL_FILE.FILE_TYPE;
 	report_line VARCHAR2(32767);
 BEGIN 
-	report_file := UTL_FILE.FOPEN(report_dir, report_name, 'R');
+	report_file := UTL_FILE.FOPEN(REPORT_DIR, report_name, 'R');
 	LOOP
 		UTL_FILE.GET_LINE(report_file, report_line);
 		IF report_line IS NOT NULL THEN
-			set_param_with_val(report_line, param_array, meta_info_array);
+			set_val(report_line, temp_array, rep_creation_date);
 		END IF;
 	END LOOP;
 EXCEPTION
-	when NO_DATA_FOUND then
-	UTL_FILE.FCLOSE(report_file);
---WHEN OTHERS THEN 
-	--dbms_output.put_line('Error occurred > ' || SQLERRM);
+	WHEN NO_DATA_FOUND THEN
+	UTL_FILE.FCLOSE_ALL;
 END;
 
 
-PROCEDURE set_param_with_val (report_line IN VARCHAR2, param_array IN OUT param_array_type, meta_info_array IN OUT meta_info_array_type)
+PROCEDURE set_val(
+	report_line IN VARCHAR2, 
+	temp_array IN OUT temp_array_type,
+	rep_creation_date IN OUT DATE)
+IS
+	param_name VARCHAR2(45);
+BEGIN
+	set_date_from_line(report_line, rep_creation_date);
+	param_name := param_array.first;
+	WHILE (param_name IS NOT NULL) LOOP
+		IF param_array(param_name).key_phrase2 IS NULL THEN
+			set_value_from_line(report_line, temp_array, param_name);
+		ELSE
+			set_sum_value_from_line(report_line, temp_array, param_name);
+		END IF;
+		param_name := param_array.next(param_name);
+	END LOOP;
+END;
+
+
+PROCEDURE set_date_from_line(
+	report_line IN VARCHAR2, 
+	rep_creation_date IN OUT DATE)
 IS
 BEGIN
-	IF meta_info_array('MIend snap date') IS NULL AND LOWER(report_line) LIKE '%end snap:%' THEN 
-		meta_info_array('MIend snap date') := get_value_from_line(report_line, 'snap:', 2);
+	IF rep_creation_date IS NULL AND LOWER(report_line) LIKE '%end snap:%' THEN 
+		rep_creation_date := get_value_from_line(report_line, 'snap:', 2);
 	END IF;
-	find_value(param_array, report_line, 'DSsga use (MB)', '%sga use (%', 'B)', 2);
-	find_value(param_array, report_line, 'DSpga use (MB)', '%pga use (%', 'B)', 2);
-	find_value(param_array, report_line, 'UShost mem (MB)', '%host mem (%', 'B)', 2);
-	find_value(param_array, report_line, 'DShost mem used for sga+pga %', '%host mem used for%', 'pga', 2);
-	find_value(param_array, report_line, 'DCbuffer cache (MB)', '%buffer cache:%', 'cache');
-	find_value(param_array, report_line, 'DCshared pool (MB)', 'shared pool%', 'pool');
-	find_value(param_array, report_line, 'DClarge pool (MB)', 'large pool%', 'pool');
-	find_value(param_array, report_line, 'DCjava pool (MB)', '%java pool%', 'pool');
-	find_value(param_array, report_line, 'DClog buffer (KB)', '%log buffer:%', 'buffer');
-	find_value(param_array, report_line, 'UCoptimal w/a exec %', '%optimal w/a exec%', '%');
-	find_value(param_array, report_line, 'UPsoft parse %', '%soft parse%', '%');
-	find_value(param_array, report_line, 'UPbuffer hit %', '%buffer  hit%', '%');
-	find_value(param_array, report_line, 'UPlibrary hit %', '%library hit%', '%');
-	find_value(param_array, report_line, 'UPbuffer nowait %', '%buffer nowait%', '%');
-	find_value(param_array, report_line, 'DClogical reads per s', '%logical reads%', 'reads');
-	find_value(param_array, report_line, 'DCphysical reads per s', '%physical reads%', 'reads');
-	find_value(param_array, report_line, 'DCphysical writes per s', '%physical writes%', 'writes');
-	find_value(param_array, report_line, 'NCsga target (MB)', 'sga target%', 'target');
-	find_value(param_array, report_line, 'NCpga target (MB)', 'pga target%', 'target');
-	find_value(param_array, report_line, 'NCpga aggregate target (B)', 'pga_aggregate_target%', 'target');
-	find_value(param_array, report_line, 'DCtransactions per s', '%transactions%', 'transactions');
-	find_value(param_array, report_line, 'DCrollbacks per s', '%rollbacks%', 'rollbacks');
-	find_sum_value(param_array, report_line, 'DCdbwr data file read (MB)', '%dbwr%', '%data file%', 'file', 1, 3);
-	find_sum_value(param_array, report_line, 'DCdbwr data file write (MB)', '%dbwr%', '%data file%', 'file', 2, 4);
-	find_sum_value(param_array, report_line, 'DClgwr log file write (MB)', '%lgwr%', '%log file%', 'file', 2, 4);
 END;
 
 
-FUNCTION get_num_val_from_line(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER DEFAULT 1)
+PROCEDURE set_value_from_line(
+	report_line IN VARCHAR2, 
+	temp_array IN OUT temp_array_type,
+	param_name IN VARCHAR2)
+IS
+BEGIN
+	IF temp_array(param_name) IS NULL AND LOWER(report_line) LIKE param_array(param_name).key_phrase1 THEN 
+		temp_array(param_name) := get_num_val_from_line(
+			report_line, 
+			param_array(param_name).key_word, 
+			param_array(param_name).word_offset1);
+	END IF;
+END;
+
+
+PROCEDURE set_sum_value_from_line(
+	report_line IN VARCHAR2, 
+	temp_array IN OUT temp_array_type,
+	param_name IN VARCHAR2)
+IS
+value_at_st_pos NUMBER;
+value_at_nd_pos NUMBER;
+BEGIN
+	IF temp_array(param_name) IS NULL 
+		AND LOWER(report_line) LIKE param_array(param_name).key_phrase1 
+		AND LOWER(report_line) LIKE param_array(param_name).key_phrase2 THEN 
+			value_at_st_pos := get_num_val_from_line(
+				report_line, 
+				param_array(param_name).key_word, 
+				param_array(param_name).word_offset1);
+			value_at_nd_pos := get_num_val_from_line(
+				report_line, 
+				param_array(param_name).key_word, 
+				param_array(param_name).word_offset2);
+			temp_array(param_name) := value_at_nd_pos + value_at_st_pos;
+	END IF;
+END;
+
+
+FUNCTION get_num_val_from_line(
+	report_line IN VARCHAR2, 
+	key_word IN VARCHAR2, 
+	word_offset IN INTEGER)
 RETURN NUMBER
 IS
 temp_val VARCHAR2(45);
 BEGIN
-	temp_val := get_value_from_line(report_line, key_word, value_order);
+	temp_val := get_value_from_line(report_line, key_word, word_offset);
 	IF temp_val IS NOT NULL THEN
 		temp_val := TO_NUMBER(regexp_replace(temp_val, '[A-Za-z,]'));
 	END IF;
@@ -188,202 +226,232 @@ BEGIN
 END;
 
 
-FUNCTION get_value_from_line(report_line IN VARCHAR2, key_word IN VARCHAR2, value_order IN NUMBER DEFAULT 1) 
+FUNCTION get_value_from_line(
+	report_line IN VARCHAR2, 
+	key_word IN VARCHAR2, 
+	word_offset IN INTEGER) 
 RETURN VARCHAR2
 IS
     temp_index INTEGER := -1;
     number_of_separators NUMBER := regexp_count(report_line, '[^ ]+');
     number_of_words NUMBER := number_of_separators + 1;
 BEGIN
-FOR word_row IN (
-    SELECT rownum, REGEXP_SUBSTR(report_line, '[^ ]+', 1, rownum) single_word
-    FROM dual
-    CONNECT BY LEVEL <= number_of_words)
+	FOR word_row IN (
+		SELECT rownum, REGEXP_SUBSTR(report_line, '[^ ]+', 1, rownum) single_word
+		FROM dual
+		CONNECT BY LEVEL <= number_of_words)
 	LOOP
-		--IF word_row.word = key_word THEN
 		IF instr(lower(word_row.single_word),lower(key_word),1) > 0 THEN
-			temp_index := word_row.rownum + value_order;
+			temp_index := word_row.rownum + word_offset;
 		END IF;
-			IF word_row.rownum = temp_index THEN
-				RETURN word_row.single_word;
-			END IF;
+		IF word_row.rownum = temp_index THEN
+			RETURN word_row.single_word;
+		END IF;
 	END LOOP;
 	RETURN NULL;
 END;
 
-
-PROCEDURE compare_and_display_params (
-	param_array_old IN OUT param_array_type, 
-	param_array_new IN OUT param_array_type, 
-	meta_info_array_old IN OUT meta_info_array_type, 
-	meta_info_array_new IN OUT meta_info_array_type)
+PROCEDURE check_rep_order_and_populate_val_arrays()
 IS
-	param varchar2(45);
-	param_cat varchar2(1);
-	param_suggestion_cat varchar2(1);
-	old_value NUMBER;
-	new_value NUMBER;
-	loop_counter INTEGER;
+BEGIN
+	IF creation_date_new_rep IS NULL OR creation_date_old_rep IS NULL THEN
+		dbms_output.put_line(chr(9) || '-> COULDN''T FIND END SNAPSHOTS CREATION DATES, REPORT ORDER WAS GIVEN BY USER <-');
+		populate_value_arrays(temp_array_old, temp_array_new);
+	ELSE
+		dbms_output.put_line(chr(9) || '-> Old raport''s end snapshot creation date: ' || creation_date_old_rep || ' <-');
+		dbms_output.put_line(chr(9) || '-> New raport''s end snapshot creation date: ' || creation_date_new_rep || ' <-');
+		populate_param_arrays_in_order();
+	END IF;
+END;
+
+PROCEDURE populate_param_arrays_in_order()
+IS
+BEGIN
+	IF TO_DATE(creation_date_new_rep) > TO_DATE(creation_date_old_rep) THEN
+		populate_value_arrays(temp_array_old, temp_array_new);
+	ELSE
+		populate_value_arrays(temp_array_new, temp_array_old);
+	END IF;
+END;
+
+PROCEDURE populate_value_arrays(
+	first_temp_array IN temp_array_type,
+	second_temp_array IN temp_array_type)
+IS 
+	param_name VARCHAR2(45);
+BEGIN
+	param_name := param_array.first;
+	WHILE (param_name IS NOT NULL) LOOP
+		value_array(param_name).old_value := first_temp_array(param_name);
+		value_array(param_name).new_value := second_temp_array(param_name);
+		param_name := param_array.next(param_name);
+	END LOOP;
+END;
+
+PROCEDURE set_diff_values()
+IS
+	param_name VARCHAR2(45);
+BEGIN
+	param_name := param_array.first;
+	WHILE (param_name IS NOT NULL) LOOP
+		IF param_array(param_name).upper_comp IS NOT NULL 
+			AND value_array(param_name).old_value IS NOT NULL
+			AND value_array(param_name).new_value IS NOT NULL THEN 
+				IF param_array(param_name).upper_comp THEN
+					param_array(param_name).diff := value_array(param_name).new_value - value_array(param_name).old_value;
+				ELSE
+					param_array(param_name).diff := value_array(param_name).old_value - value_array(param_name).new_value;
+				END IF;
+		END IF;
+		param_name := param_array.next(param_name);
+	END LOOP;
+END;
+
+PROCEDURE display_params()
+IS
+	param_name VARCHAR2(45);
 	param_index INTEGER := 1;
 BEGIN
 	dbms_output.put_line('~~~ STATSPACK REPORTS COMPARISON -->');
-	order_param_arrays(param_array_old, param_array_new, meta_info_array_old, meta_info_array_new);
-	param := param_array_old.first;
-	WHILE (param IS NOT NULL) LOOP
-		param_cat := SUBSTR(param,1,1);
-		param_suggestion_cat := SUBSTR(param,2,1);
+	param_name := param_array.first;
+	WHILE (param_name IS NOT NULL) LOOP
 		dbms_output.put_line(chr(10) || param_index || '. ' || UPPER(SUBSTR(param, 3)));
-		FOR loop_counter IN 0..26 LOOP
-			dbms_output.put('~');
-		END LOOP;
-		dbms_output.put_line(' ');
-		old_value := param_array_old(param);
-		new_value := param_array_new(param);
-		IF old_value IS NULL AND new_value IS NULL THEN
-			dbms_output.put_line(chr(9) || 'Parameter values not found');
+		display_decoration_chars();
+		IF value_array(param_name).old_value IS NULL AND 
+			value_array(param_name).new_value IS NULL THEN
+				dbms_output.put_line(chr(9) || 'Parameter values not found');
 		ELSE
-			IF old_value IS NULL THEN
-				dbms_output.put_line(chr(9) || 'Old value not found');
-				IF new_value IS NULL THEN
-					dbms_output.put_line(chr(9) || 'New value not found');
-				ELSE
-					dbms_output.put_line(chr(9) || 'New value: ' || new_value);
-					IF param_suggestion_cat = 'P' OR param_suggestion_cat = 'S' THEN
-						show_suggested_values(param_array_new, param);
-					END IF;
-				END IF;
-			ELSE
-				dbms_output.put_line(chr(9) || 'Old value: ' || old_value);
-				IF new_value IS NULL THEN
-					dbms_output.put_line(chr(9) || 'New value not found');
-				ELSE
-					dbms_output.put_line(chr(9) || 'New value: ' || new_value);
-					IF param_cat = 'U' THEN
-						compare_values(old_value, new_value);
-					ELSIF param_cat = 'D' THEN
-						compare_values(new_value, old_value);
-					END IF;
-					IF param_suggestion_cat = 'P' OR param_suggestion_cat = 'S' THEN
-						show_suggested_values(param_array_new, param);
-					END IF;
-				END IF;
-			END IF;
+				display_value(value_array(param_name).old_value, 'Old');
+				display_value(value_array(param_name).new_value, 'New');
+				compare_values(param_name);
+						-- IF param_suggestion_cat = 'P' OR param_suggestion_cat = 'S' THEN
+						-- 	show_suggested_values(param_array_new, param);
+						-- END IF;
 		END IF;
-		param := param_array_old.next(param);
+		param_name := param_array.next(param_name);
 		param_index := param_index + 1;
 	END LOOP;
 	dbms_output.put_line(chr(10) || '<-- STATSPACK REPORTS COMPARISON ~~~');
 END;
 
 
-PROCEDURE order_param_arrays(
-	param_array_old IN OUT param_array_type, 
-	param_array_new IN OUT param_array_type, 
-	meta_info_array_old IN OUT meta_info_array_type, 
-	meta_info_array_new IN OUT meta_info_array_type)
+PROCEDURE display_value(
+	param_value IN NUMBER,
+	text_arg IN VARCHAR2)
 IS
-temp_param_array param_array_type := param_array_type();
-temp_meta_info_array meta_info_array_type := meta_info_array_type();
 BEGIN
-	IF meta_info_array_old('MIend snap date') IS NULL OR meta_info_array_new('MIend snap date') IS NULL THEN
-		dbms_output.put_line(chr(9) || '-> COULDN''T FIND END SNAPSHOTS CREATION DATES, REPORT ORDER WAS GIVEN BY USER <-');
+	IF param_value IS NULL THEN
+		dbms_output.put_line(chr(9) || text_arg || ' value not found');
 	ELSE
-		IF TO_DATE(meta_info_array_old('MIend snap date')) > TO_DATE(meta_info_array_new('MIend snap date')) THEN
-			temp_param_array := param_array_old;
-			param_array_old := param_array_new;
-			param_array_new := temp_param_array;
-			temp_meta_info_array := meta_info_array_old;
-			meta_info_array_old := meta_info_array_new;
-			meta_info_array_new := temp_meta_info_array;
-		END IF;
+		dbms_output.put_line(chr(9) || text_arg || ' value: ' || new_value);
 	END IF;
 END;
 
 
-PROCEDURE compare_values(exp_worse_val IN NUMBER, exp_better_val IN NUMBER)
+PROCEDURE display_decoration_chars()
 IS
-param_diff NUMBER := 0;
+	loop_counter INTEGER;
 BEGIN
-	IF exp_better_val = exp_worse_val THEN 
-		dbms_output.put_line(chr(9) || '--> Parameter value did''t change');
-	ELSE
-		IF exp_better_val > exp_worse_val THEN 
-			dbms_output.put_line(chr(9) || '--> Parameter value got better!');
-		ELSE
-			dbms_output.put_line(chr(9) || '--> Parameter value got worse');
-		END IF;
-		param_diff := exp_better_val-exp_worse_val;
-		dbms_output.put_line(chr(9) || '---> Difference between new value and old value is: ' ||  param_diff);
-	END IF;
+	FOR loop_counter IN 0..26 LOOP
+			dbms_output.put('~');
+	END LOOP;
+	dbms_output.put_line(' ');
 END;
 
 
-PROCEDURE find_value(
-	param_array IN OUT param_array_type,
-	report_line IN VARCHAR2, 
-	param_name IN VARCHAR2, 
-	key_phrase IN VARCHAR2, 
-	key_word VARCHAR2, 
-	value_position IN NUMBER DEFAULT 1)
-IS
-BEGIN
-	IF param_array(param_name) IS NULL AND LOWER(report_line) LIKE key_phrase THEN 
-		param_array(param_name) := get_num_val_from_line(report_line, key_word, value_position);
-	END IF;
-END;
-
-
-PROCEDURE find_sum_value(
-	param_array IN OUT param_array_type,
-	report_line IN VARCHAR2, 
-	param_name IN VARCHAR2, 
-	key_phrase_st IN VARCHAR2,
-	key_phrase_nd IN VARCHAR2,  
-	key_word VARCHAR2, 
-	value_position_st IN NUMBER,
-	value_position_nd IN NUMBER)
-IS
-value_at_st_pos NUMBER;
-value_at_nd_pos NUMBER;
-BEGIN
-	IF param_array(param_name) IS NULL AND LOWER(report_line) LIKE key_phrase_st AND LOWER(report_line) LIKE key_phrase_nd THEN 
-		value_at_st_pos := get_num_val_from_line(report_line, key_word, value_position_st);
-		value_at_nd_pos := get_num_val_from_line(report_line, key_word, value_position_nd);
-		value_at_nd_pos := value_at_nd_pos + value_at_st_pos;
-		param_array(param_name) := value_at_nd_pos; 
-	END IF;
-END;
-
-
-PROCEDURE show_suggested_values(
-	param_array IN OUT param_array_type, 
+PROCEDURE compare_values(
 	param_name IN VARCHAR2)
 IS
-temp_val NUMBER;
-param_suggestion_cat VARCHAR2(1);
 BEGIN
-	param_suggestion_cat := SUBSTR(param_name,2,1);
-	IF param_name = 'DSsga use (MB)' AND param_array('UShost mem (MB)') IS NOT NULL THEN
-		temp_val := 0.6 * param_array('UShost mem (MB)');
-		dbms_output.put_line(chr(9) || '---> Parameter value should be < 60% of host mem (< ' || temp_val || ' MB)');
-
-	ELSIF param_name = 'DSpga use (MB)'AND param_array('UShost mem (MB)') IS NOT NULL THEN
-		temp_val := 0.2 * param_array('UShost mem (MB)');
-		dbms_output.put_line(chr(9) || '---> Parameter value should be < 20% of host mem (< ' || temp_val || ' MB)');
-
-	ELSIF param_name = 'UShost mem (MB)' AND param_array('DSsga use (MB)') IS NOT NULL AND param_array('DSpga use (MB)') IS NOT NULL THEN
-		temp_val := 1.25 * (param_array('DSsga use (MB)') + param_array('DSpga use (MB)'));
-		dbms_output.put_line(chr(9) || '---> Parameter value should be > 125% of PGA and SGA use sum (> ' || temp_val || ' MB)');
-
-	ELSIF param_name = 'DShost mem used for sga+pga %' AND param_array('UShost mem (MB)') IS NOT NULL THEN
-		temp_val := 0.8 * param_array('UShost mem (MB)');
-		dbms_output.put_line(chr(9) || '---> Parameter value should be < 80% of host mem (< ' || temp_val || ' MB)');
-
-	ELSIF param_suggestion_cat = 'P' THEN
-		dbms_output.put_line(chr(9) || '---> Parameter value should be close to 100%');
+	IF param_array(param_name).diff IS NOT NULL THEN
+		display_comparison(param_array(param_name).diff);
 	END IF;
 END;
 
+
+PROCEDURE display_comparison(
+	diff IN NUMBER)
+IS
+BEGIN
+	IF diff = 0 THEN 
+		dbms_output.put_line(chr(9) || '--> Parameter value did''t change');
+	ELSIF diff > 0 THEN 
+		dbms_output.put_line(chr(9) || '--> Parameter value got better!');
+	ELSE
+		dbms_output.put_line(chr(9) || '--> Parameter value got worse');
+	END IF;
+	dbms_output.put_line(chr(9) || '---> Difference between new value and old value is: ' ||  diff);
+END;
+
+
+PROCEDURE init_arrays()
+IS
+BEGIN
+	init_param_array();
+	init_value_array();
+	init_temp_array(temp_array_old);
+	init_temp_array(temp_array_new);
+END;
+
+
+PROCEDURE init_param_array()
+IS
+BEGIN
+	param_array('sga use') := param_data_type('sga use (MB)', '%sga use (%', null, 'B)', 2, null, FALSE, null, null);
+	param_array('pga use') := param_data_type('pga use (MB)', '%pga use (%', null, 'B)', 2, null, FALSE, null, null);
+	param_array('host mem') := param_data_type('host mem (MB)', '%host mem (%', null, 'B)', 2, null, TRUE, null, null);
+	param_array('host mem %') := param_data_type('host mem used for sga+pga %', '%host mem used for%', null, 'pga', 2, null, FALSE, null, null);
+	param_array('buffer cache') := param_data_type('buffer cache (MB)', '%buffer cache:%', null, 'cache', 1, null, FALSE, null, null);
+
+	param_array('shared pool') := param_data_type('shared pool (MB)', 'shared pool%', null, 'pool', 1, null, FALSE, null, null);
+	param_array('large pool') := param_data_type('large pool (MB)', 'large pool%', null, 'pool', 1, null, FALSE, null, null);
+	param_array('java pool') := param_data_type('java pool (MB)', '%java pool%', null, 'pool', 1, null, FALSE, null, null);
+	param_array('log buffer') := param_data_type('log buffer (KB)', '%log buffer:%', null, 'buffer', 1, null, FALSE, null, null);
+
+	param_array('optimal wa exec') := param_data_type('optimal w/a exec %', '%optimal w/a exec%', null, '%', 1, null, null, null, null);
+	param_array('soft parse') := param_data_type('soft parse %', '%soft parse%', null, '%', 1, null, TRUE, null, null);
+	param_array('buffer hit') := param_data_type('buffer hit %', '%buffer  hit%', null, '%', 1, null, TRUE, null, null);
+	param_array('library hit') := param_data_type('library hit %', '%library hit%', null, '%', 1, null, TRUE, null, null);
+
+	param_array('buffer nowait') := param_data_type('buffer nowait %', '%buffer nowait%', null, '%', 1, null, TRUE, null, null);
+	param_array('logical reads') := param_data_type('logical reads per s', '%logical reads%', null, 'reads', 1, null, FALSE, null, null);
+	param_array('physical reads') := param_data_type('physical reads per s', '%physical reads%', null, 'reads', 1, null, FALSE, null, null);
+	param_array('physical writes') := param_data_type('physical writes per s', '%physical writes%', null, 'writes', 1, null, FALSE, null, null);
+
+	param_array('pga target') := param_data_type('pga target', 'pga target%', null, 'target', 1, null, null, null, null);
+	param_array('sga target') := param_data_type('sga target', 'sga target%', null, 'target', 1, null, null, null, null);
+	param_array('pga aggregate target') := param_data_type('pga aggregate target (B)', 'pga_aggregate_target%', null, 'target', 1, null, null, null, null);
+	param_array('transactions') := param_data_type('transactions per s', '%transactions%', null, 'transactions', 1, null, FALSE, null, null);
+
+	param_array('rollbacks') := param_data_type('rollbacks per s', '%rollbacks%', null, 'rollbacks', 1, null, FALSE, null, null);
+	param_array('dbwr read') := param_data_type('dbwr data file read (MB)', '%dbwr%', '%data file%', 'file', 1, 3, FALSE, null, null);
+	param_array('dbwr write') := param_data_type('dbwr data file write (MB)', '%dbwr%', '%data file%', 'file', 2, 4, FALSE, null, null);
+	param_array('lgwr write') := param_data_type('lgwr log file write (MB)', '%lgwr%', '%log file%', 'file', 2, 4, FALSE, null, null);
+END;
+
+
+PROCEDURE init_value_array()
+IS
+param_name VARCHAR2(45);
+BEGIN
+	param_name := param_array.first;
+	WHILE (param_name IS NOT NULL) LOOP
+		value_array(param_name) := param_value_type(null, null, null, null);
+		param_name := param_array.next(param_name);
+	END LOOP;
+END;
+
+
+PROCEDURE init_temp_array(temp_array IN OUT temp_array_type)
+IS
+param_name VARCHAR2(45);
+BEGIN
+	param_name := param_array.first;
+	WHILE (param_name IS NOT NULL) LOOP
+		temp_array(param_name) := null;
+		param_name := param_array.next(param_name);
+	END LOOP;
+END;
 
 END;
 /
