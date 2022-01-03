@@ -1,5 +1,5 @@
 SET SERVEROUTPUT ON;
-CREATE OR REPLACE PACKAGE report_diff_analyzer AS 
+CREATE OR REPLACE PACKAGE perfstat.report_diff_analyzer AS 
 	TYPE param_data_type IS RECORD (
 		description VARCHAR2(45), 
 		key_phrase1 VARCHAR2(45), 
@@ -16,10 +16,24 @@ CREATE OR REPLACE PACKAGE report_diff_analyzer AS
 
 	TYPE param_array_type IS TABLE OF param_data_type INDEX BY VARCHAR2(45);
 	TYPE param_value_array_type IS TABLE OF param_value_type INDEX BY VARCHAR2(45);
-	TYPE temp_array_type IS TABLE OF VARCHAR2(70) INDEX BY VARCHAR2(45);
+	TYPE temp_array_type IS TABLE OF NUMBER INDEX BY VARCHAR2(45);
 	PROCEDURE compare_reports(
 		old_report_name IN VARCHAR2, 
 		new_report_name IN VARCHAR2);
+END;
+/
+
+
+
+CREATE OR REPLACE PACKAGE BODY perfstat.report_diff_analyzer AS 
+	REPORT_DIR VARCHAR2(20) := 'REPORT_DIR';
+	creation_date_old_rep DATE := null;
+	creation_date_new_rep DATE := null;
+	param_array param_array_type;
+	value_array param_value_array_type;
+	temp_array_old temp_array_type;
+	temp_array_new temp_array_type;
+
 	PROCEDURE check_if_reports_exist(
 		old_report_name IN VARCHAR2, 
 		new_report_name IN VARCHAR2);
@@ -70,24 +84,10 @@ CREATE OR REPLACE PACKAGE report_diff_analyzer AS
 		param_diff IN NUMBER);
 	PROCEDURE init_package_variables;
 	PROCEDURE init_param_array;
-	PROCEDURE init_value_array;
-	PROCEDURE init_temp_array(temp_array IN OUT temp_array_type);
+	PROCEDURE init_array_with_on_param_names;
 	PROCEDURE display_suggestion(
 	param_name IN VARCHAR2);
 	PROCEDURE set_threshold_messages;
-END;
-/
-
-
-
-CREATE OR REPLACE PACKAGE BODY report_diff_analyzer AS 
-	REPORT_DIR VARCHAR2(20) := 'REPORT_DIR';
-	creation_date_old_rep DATE := null;
-	creation_date_new_rep DATE := null;
-	param_array param_array_type;
-	value_array param_value_array_type;
-	temp_array_old temp_array_type;
-	temp_array_new temp_array_type;
 
 PROCEDURE compare_reports(
 	old_report_name IN VARCHAR2, 
@@ -170,7 +170,6 @@ BEGIN
 	END LOOP;
 END;
 
-
 PROCEDURE set_date_from_line(
 	report_line IN VARCHAR2, 
 	rep_creation_date IN OUT DATE)
@@ -181,14 +180,14 @@ BEGIN
 	END IF;
 END;
 
-
 PROCEDURE set_value_from_line(
 	report_line IN VARCHAR2, 
 	temp_array IN OUT temp_array_type,
 	param_name IN VARCHAR2)
 IS
 BEGIN
-	IF temp_array(param_name) IS NULL AND LOWER(report_line) LIKE param_array(param_name).key_phrase1 THEN 
+	IF temp_array(param_name) IS NULL AND 
+		LOWER(report_line) LIKE param_array(param_name).key_phrase1 THEN 
 		temp_array(param_name) := get_num_val_from_line(
 			report_line, 
 			param_array(param_name).key_word, 
@@ -337,7 +336,8 @@ IS
 BEGIN
 	param_name := param_array.first;
 	WHILE (param_name IS NOT NULL) LOOP
-		dbms_output.put_line(chr(10) || param_index || '. ' || UPPER(param_array(param_name).description));
+		dbms_output.put_line(chr(10) || param_index || '. ' || 
+			UPPER(param_array(param_name).description));
 		display_decoration_chars();
 		IF value_array(param_name).old_value IS NULL AND 
 			value_array(param_name).new_value IS NULL THEN
@@ -352,7 +352,6 @@ BEGIN
 		param_index := param_index + 1;
 	END LOOP;
 END;
-
 
 PROCEDURE display_value(
 	param_value IN NUMBER,
@@ -409,9 +408,7 @@ BEGIN
 	creation_date_old_rep := null;
 	creation_date_new_rep := null;
 	init_param_array();
-	init_value_array();
-	init_temp_array(temp_array_old);
-	init_temp_array(temp_array_new);
+	init_array_with_on_param_names();
 END;
 
 
@@ -421,7 +418,6 @@ BEGIN
 	param_array('sga use') := param_data_type('sga use (MB)', '%sga use (%', null, 'B)', 2, null, FALSE);
 	param_array('pga use') := param_data_type('pga use (MB)', '%pga use (%', null, 'B)', 2, null, FALSE);
 	param_array('host mem') := param_data_type('host mem (MB)', '%host mem (%', null, 'B)', 2, null, TRUE);
-	param_array('host mem %') := param_data_type('host mem used for sga+pga %', '%host mem used for%', null, 'pga', 2, null, FALSE);
 	param_array('buffer cache') := param_data_type('buffer cache (MB)', '%buffer cache:%', null, 'cache', 1, null, FALSE);
 
 	param_array('shared pool') := param_data_type('shared pool (MB)', 'shared pool%', null, 'pool', 1, null, FALSE);
@@ -430,11 +426,9 @@ BEGIN
 	param_array('log buffer') := param_data_type('log buffer (KB)', '%log buffer:%', null, 'buffer', 1, null, FALSE);
 
 	param_array('optimal wa exec') := param_data_type('optimal w/a exec %', '%optimal w/a exec%', null, '%', 1, null, null);
-	param_array('soft parse') := param_data_type('soft parse %', '%soft parse%', null, '%', 1, null, TRUE);
 	param_array('buffer hit') := param_data_type('buffer hit %', '%buffer  hit%', null, '%', 1, null, TRUE);
 	param_array('library hit') := param_data_type('library hit %', '%library hit%', null, '%', 1, null, TRUE);
 
-	param_array('buffer nowait') := param_data_type('buffer nowait %', '%buffer nowait%', null, '%', 1, null, TRUE);
 	param_array('logical reads') := param_data_type('logical reads per s', '%logical reads%', null, 'reads', 1, null, FALSE);
 	param_array('physical reads') := param_data_type('physical reads per s', '%physical reads%', null, 'reads', 1, null, FALSE);
 	param_array('physical writes') := param_data_type('physical writes per s', '%physical writes%', null, 'writes', 1, null, FALSE);
@@ -444,32 +438,26 @@ BEGIN
 	param_array('pga aggregate target') := param_data_type('pga aggregate target (B)', 'pga_aggregate_target%', null, 'target', 1, null, null);
 	param_array('transactions') := param_data_type('transactions per s', '%transactions%', null, 'transactions', 1, null, FALSE);
 
-	param_array('rollbacks') := param_data_type('rollbacks per s', '%rollbacks%', null, 'rollbacks', 1, null, FALSE);
-	param_array('dbwr read') := param_data_type('dbwr data file read (MB)', '%dbwr%', '%data file%', 'file', 1, 3, FALSE);
+	param_array('executes') := param_data_type('executes per s', '%executes%', null, 'executes', 1, null, FALSE);
+	param_array('logons') := param_data_type('logons per s', '%logons%', null, 'logons', 1, null, FALSE);
+	param_array('parses') := param_data_type('parses per s', '%parses%', null, 'parses', 1, null, FALSE);
+	param_array('hard parses') := param_data_type('hard parses per s', '%hard parses%', null, 'parses', 1, null, FALSE);
+
 	param_array('dbwr write') := param_data_type('dbwr data file write (MB)', '%dbwr%', '%data file%', 'file', 2, 4, FALSE);
 	param_array('lgwr write') := param_data_type('lgwr log file write (MB)', '%lgwr%', '%log file%', 'file', 2, 4, FALSE);
+	param_array('host mem %') := param_data_type('host mem used for sga+pga %', '%host mem used for%', null, 'pga', 2, null, FALSE);
 END;
 
 
-PROCEDURE init_value_array
+PROCEDURE init_array_with_on_param_names
 IS
 param_name VARCHAR2(45);
 BEGIN
 	param_name := param_array.first;
 	WHILE (param_name IS NOT NULL) LOOP
 		value_array(param_name) := param_value_type(null, null, null, null);
-		param_name := param_array.next(param_name);
-	END LOOP;
-END;
-
-
-PROCEDURE init_temp_array(temp_array IN OUT temp_array_type)
-IS
-param_name VARCHAR2(45);
-BEGIN
-	param_name := param_array.first;
-	WHILE (param_name IS NOT NULL) LOOP
-		temp_array(param_name) := null;
+		temp_array_old(param_name) := null;
+		temp_array_new(param_name) := null;
 		param_name := param_array.next(param_name);
 	END LOOP;
 END;
@@ -498,14 +486,15 @@ BEGIN
 	IF value_array('sga use').new_value IS NOT NULL AND 
 		value_array('pga use').new_value IS NOT NULL THEN
 			temp_val := 1.25 * (value_array('sga use').new_value + value_array('pga use').new_value);
-			value_array('host mem').threshold_message := 'Parameter value should be > 125% of PGA and SGA use sum (> ' || temp_val || ' MB)';
+			value_array('host mem').threshold_message := 
+				'Parameter value should be > 2.5 GB and > 125% of PGA and SGA use sum (> ' || temp_val || ' MB)';
 	END IF;
-	IF value_array('optimal wa exec').new_value IS NOT NULL THEN
-		value_array('soft parse').threshold_message := 'Parameter value should be equal optimal w/a exec % (~' || value_array('optimal wa exec').new_value || '%)';
-	END IF;
-	value_array('buffer hit').threshold_message := 'Parameter value should be close to 100%';
+	value_array('optimal wa exec').threshold_message := 'Parameter value should be > 90%';
 	value_array('library hit').threshold_message := 'Parameter value should be close to 100%';
-	value_array('buffer nowait').threshold_message := 'Parameter value should be close to 100%';
+	value_array('buffer hit').threshold_message := 'Parameter value should be close to 100%';
+	value_array('parses').threshold_message := 'Parameter value should be < 300';
+	value_array('hard parses').threshold_message := 'Parameter value should be < 100';
+	value_array('logons').threshold_message := 'Parameter value should be < 2';
 END;
 
 END;
